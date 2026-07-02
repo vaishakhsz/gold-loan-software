@@ -453,7 +453,8 @@ elif menu == "✏️ Edit Party Details":
                     st.success(f"✅ Party {party_name} details updated successfully!")
                     st.balloons()
 
-# Gold Loan Disbursement Module
+
+# Gold Loan Disbursement Module - UPDATED
 elif menu == "💰 Gold Loan Disbursement":
     st.markdown('<h2 class="sub-header">💰 Gold Loan Disbursement</h2>', unsafe_allow_html=True)
     
@@ -482,7 +483,8 @@ elif menu == "💰 Gold Loan Disbursement":
             """, unsafe_allow_html=True)
             
             st.markdown("### Loan Details")
-            principal = st.number_input("Principal Amount (₹) *", min_value=1000.0, step=500.0, format="%.2f", value=39475.0)
+            # User enters GROSS amount (before fees)
+            gross_amount = st.number_input("Gross Loan Amount (₹) *", min_value=1000.0, step=500.0, format="%.2f", value=40375.0)
             interest_rate = st.number_input("Interest Rate (% per annum) *", min_value=0.0, max_value=36.0, step=0.5, format="%.1f", value=12.0)
             duration_months = st.number_input("Duration (Months) *", min_value=1, max_value=60, step=1, value=12)
             
@@ -499,23 +501,35 @@ elif menu == "💰 Gold Loan Disbursement":
             documentation_fee = st.number_input("Documentation Fee (₹)", min_value=0.0, step=50.0, format="%.2f", value=0.0)
             
             total_fees = processing_fee + admin_fee + documentation_fee
-            net_disbursement = principal - total_fees
+            net_disbursement = gross_amount - total_fees
             
-            if principal > 0 and duration_months > 0:
-                # Calculate using Simple Interest method
-                result = calculate_simple_interest_emi(principal, interest_rate, duration_months)
+            st.markdown(f"""
+            <div class="info-box" style="background: #e3f2fd; border-left-color: #2196F3;">
+                <strong>📊 Fee Summary:</strong><br>
+                Gross Amount: ₹{gross_amount:,.2f}<br>
+                Processing Fee: -₹{processing_fee:,.2f}<br>
+                Admin Fee: -₹{admin_fee:,.2f}<br>
+                Documentation Fee: -₹{documentation_fee:,.2f}<br>
+                <hr>
+                <strong>Net Disbursement: ₹{net_disbursement:,.2f}</strong>
+            </div>
+            """, unsafe_allow_html=True)
+            
+            if gross_amount > 0 and duration_months > 0:
+                # Calculate using Simple Interest method on GROSS amount
+                result = calculate_simple_interest_emi(gross_amount, interest_rate, duration_months)
                 emi = result['emi']
                 total_interest = result['total_interest']
                 total_amount = result['total_amount']
                 
                 # Generate EMI Schedule Preview
-                emi_schedule = generate_emi_schedule_simple(principal, interest_rate, duration_months, emi_start_date)
+                emi_schedule = generate_emi_schedule_simple(gross_amount, interest_rate, duration_months, emi_start_date)
                 
                 st.markdown("### Loan Summary")
                 st.markdown(f"""
                 <div class="info-box-gold">
                     <strong>📊 Simple Interest Calculation:</strong><br>
-                    Principal Amount: ₹{principal:,.2f}<br>
+                    Gross Amount: ₹{gross_amount:,.2f}<br>
                     Interest Rate: {interest_rate}% p.a.<br>
                     Tenure: {duration_months} months ({duration_months/12:.1f} years)<br>
                     <hr>
@@ -523,33 +537,32 @@ elif menu == "💰 Gold Loan Disbursement":
                     <strong>Total Amount Due: ₹{total_amount:,.2f}</strong><br>
                     <strong>EMI: ₹{emi:,.2f}</strong><br>
                     <hr>
-                    Processing Fee: ₹{processing_fee:,.2f}<br>
-                    Total Fees: ₹{total_fees:,.2f}<br>
                     <strong>Net Disbursement: ₹{net_disbursement:,.2f}</strong>
                 </div>
                 """, unsafe_allow_html=True)
                 
                 # Show calculation breakdown
                 with st.expander("📊 View Complete Calculation Breakdown"):
-                    breakdown, _ = get_emi_calculation_breakdown(principal, interest_rate, duration_months)
+                    breakdown, _ = get_emi_calculation_breakdown(gross_amount, interest_rate, duration_months)
                     st.markdown(f'<div class="calculation-box">{breakdown}</div>', unsafe_allow_html=True)
             else:
-                st.info("Enter principal and duration to calculate EMI.")
+                st.info("Enter gross amount and duration to calculate EMI.")
             
             if st.button("💰 Disburse Loan", use_container_width=True):
-                if principal <= 0 or duration_months <= 0:
-                    st.error("⚠️ Please enter valid principal amount and duration.")
+                if gross_amount <= 0 or duration_months <= 0:
+                    st.error("⚠️ Please enter valid gross amount and duration.")
                 elif net_disbursement < 0:
-                    st.error("⚠️ Total fees cannot exceed principal amount.")
+                    st.error("⚠️ Total fees cannot exceed gross amount.")
                 else:
                     loan_id = generate_loan_id()
-                    result = calculate_simple_interest_emi(principal, interest_rate, duration_months)
+                    result = calculate_simple_interest_emi(gross_amount, interest_rate, duration_months)
                     
                     loan_data = {
                         'loan_id': loan_id,
                         'party_id': party_id,
                         'party_name': party_data['party_name'],
-                        'principal': principal,
+                        'gross_amount': gross_amount,  # Store gross amount
+                        'principal': net_disbursement,  # Net amount is what customer gets
                         'interest_rate': interest_rate,
                         'duration_months': duration_months,
                         'emi': result['emi'],
@@ -567,8 +580,8 @@ elif menu == "💰 Gold Loan Disbursement":
                         'outstanding_balance': result['total_amount'],
                         'paid_amount': 0,
                         'remaining_tenure': duration_months,
-                        'emi_schedule': generate_emi_schedule_simple(principal, interest_rate, duration_months, emi_start_date),
-                        'calculation_breakdown': get_emi_calculation_breakdown(principal, interest_rate, duration_months)[0]
+                        'emi_schedule': generate_emi_schedule_simple(gross_amount, interest_rate, duration_months, emi_start_date),
+                        'calculation_breakdown': get_emi_calculation_breakdown(gross_amount, interest_rate, duration_months)[0]
                     }
                     st.session_state.loans[loan_id] = loan_data
                     
@@ -579,12 +592,24 @@ elif menu == "💰 Gold Loan Disbursement":
                         'party_name': party_data['party_name'],
                         'transaction_type': 'Loan Disbursement',
                         'amount': net_disbursement,
-                        'details': f'Loan ID: {loan_id}'
+                        'details': f'Loan ID: {loan_id} (Gross: ₹{gross_amount:,.2f})'
                     }
                     
                     st.success(f"✅ Loan disbursed successfully! Loan ID: {loan_id}")
                     st.balloons()
-                    st.info(f"📄 Net amount disbursed: ₹{net_disbursement:,.2f}")
+                    
+                    # Show disbursement details
+                    st.markdown(f"""
+                    <div class="info-box" style="background: #e8f5e9; border-left-color: #4CAF50;">
+                        <strong>📄 Disbursement Summary:</strong><br>
+                        Gross Amount: ₹{gross_amount:,.2f}<br>
+                        Total Fees: -₹{total_fees:,.2f}<br>
+                        <strong>Net Amount Disbursed: ₹{net_disbursement:,.2f}</strong><br>
+                        <hr>
+                        EMI: ₹{result['emi']:,.2f}<br>
+                        Total Amount Due: ₹{result['total_amount']:,.2f}
+                    </div>
+                    """, unsafe_allow_html=True)
 
 # EMI Schedule Module
 elif menu == "📅 EMI Schedule":

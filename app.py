@@ -1,13 +1,11 @@
 # app.py - Gold Loan Management System
-# Complete application code - Copy this entire file
+# Complete working version with all error handling
 
 import streamlit as st
 import pandas as pd
 import datetime
-import uuid
 import json
-import os
-from datetime import datetime, timedelta
+from datetime import datetime
 
 # Page configuration
 st.set_page_config(
@@ -78,7 +76,6 @@ def generate_loan_id():
     return f"L{datetime.now().strftime('%Y%m%d')}{str(len(st.session_state.loans) + 1).zfill(3)}"
 
 def calculate_emi(principal, interest_rate, tenure_months):
-    """Calculate EMI using formula: EMI = P * r * (1+r)^n / ((1+r)^n - 1)"""
     if interest_rate == 0:
         return principal / tenure_months
     monthly_rate = interest_rate / 12 / 100
@@ -120,7 +117,6 @@ if menu == "🏠 Dashboard":
         total_gold_weight = sum([item['net_weight'] for item in st.session_state.gold_items.values()]) if st.session_state.gold_items else 0
         st.metric("Total Gold Pledged (g)", f"{total_gold_weight:.2f}g")
     
-    # Recent Transactions
     st.markdown('<h3 class="sub-header">📈 Recent Activity</h3>', unsafe_allow_html=True)
     
     if st.session_state.transactions:
@@ -143,10 +139,10 @@ elif menu == "👤 Party Master":
             with col1:
                 st.markdown("### Personal Details")
                 party_name = st.text_input("Full Name *", placeholder="Enter full name")
-                age = st.number_input("Age", min_value=18, max_value=100, step=1)
+                age = st.number_input("Age", min_value=18, max_value=100, step=1, value=25)
                 dob = st.date_input("Date of Birth", max_value=datetime.now())
                 occupation = st.selectbox("Occupation", ["Salaried", "Self-Employed", "Business", "Professional", "Retired", "Student", "Other"])
-                avg_monthly_salary = st.number_input("Average Monthly Salary (₹)", min_value=0.0, step=1000.0, format="%.2f")
+                avg_monthly_salary = st.number_input("Average Monthly Salary (₹)", min_value=0.0, step=1000.0, format="%.2f", value=0.0)
                 qualification = st.text_input("Qualification")
                 
                 st.markdown("### Contact Details")
@@ -159,10 +155,10 @@ elif menu == "👤 Party Master":
             with col2:
                 st.markdown("### Spouse Details")
                 spouse_name = st.text_input("Spouse's Full Name")
-                spouse_age = st.number_input("Spouse's Age", min_value=18, max_value=100, step=1)
+                spouse_age = st.number_input("Spouse's Age", min_value=18, max_value=100, step=1, value=25)
                 spouse_dob = st.date_input("Spouse's Date of Birth", max_value=datetime.now())
                 spouse_occupation = st.selectbox("Spouse's Occupation", ["Salaried", "Self-Employed", "Business", "Professional", "Retired", "Student", "Other", "Homemaker"])
-                spouse_avg_salary = st.number_input("Spouse's Avg Monthly Salary (₹)", min_value=0.0, step=1000.0, format="%.2f")
+                spouse_avg_salary = st.number_input("Spouse's Avg Monthly Salary (₹)", min_value=0.0, step=1000.0, format="%.2f", value=0.0)
                 spouse_qualification = st.text_input("Spouse's Qualification")
                 
                 st.markdown("### Spouse's Contact Details")
@@ -207,7 +203,6 @@ elif menu == "👤 Party Master":
                     }
                     st.session_state.parties[party_id] = party_data
                     
-                    # Add to transactions
                     trans_id = f"T{datetime.now().strftime('%Y%m%d%H%M%S')}"
                     st.session_state.transactions[trans_id] = {
                         'date': datetime.now().strftime("%Y-%m-%d %H:%M:%S"),
@@ -254,14 +249,12 @@ elif menu == "💰 Gold Loan Disbursement":
         with col1:
             st.markdown("### Loan Application")
             
-            # Party Selection
             party_options = {f"{data['party_id']} - {data['party_name']}": pid 
                            for pid, data in st.session_state.parties.items()}
             selected_party_display = st.selectbox("Select Party *", list(party_options.keys()))
             party_id = party_options[selected_party_display]
             party_data = st.session_state.parties[party_id]
             
-            # Display party info
             st.markdown(f"""
             <div class="info-box">
                 <strong>Party Details:</strong><br>
@@ -273,20 +266,19 @@ elif menu == "💰 Gold Loan Disbursement":
             """, unsafe_allow_html=True)
             
             st.markdown("### Loan Details")
-            principal = st.number_input("Principal Amount (₹) *", min_value=1000.0, step=500.0, format="%.2f")
-            interest_rate = st.number_input("Interest Rate (% per annum) *", min_value=0.0, max_value=36.0, step=0.5, format="%.1f")
-            duration_months = st.number_input("Duration (Months) *", min_value=1, max_value=60, step=1)
+            principal = st.number_input("Principal Amount (₹) *", min_value=1000.0, step=500.0, format="%.2f", value=10000.0)
+            interest_rate = st.number_input("Interest Rate (% per annum) *", min_value=0.0, max_value=36.0, step=0.5, format="%.1f", value=12.0)
+            duration_months = st.number_input("Duration (Months) *", min_value=1, max_value=60, step=1, value=12)
         
         with col2:
             st.markdown("### Fee Structure")
-            processing_fee = st.number_input("Processing Fee (₹)", min_value=0.0, step=50.0, format="%.2f")
-            admin_fee = st.number_input("Admin Fee (₹)", min_value=0.0, step=50.0, format="%.2f")
-            documentation_fee = st.number_input("Documentation Fee (₹)", min_value=0.0, step=50.0, format="%.2f")
+            processing_fee = st.number_input("Processing Fee (₹)", min_value=0.0, step=50.0, format="%.2f", value=0.0)
+            admin_fee = st.number_input("Admin Fee (₹)", min_value=0.0, step=50.0, format="%.2f", value=0.0)
+            documentation_fee = st.number_input("Documentation Fee (₹)", min_value=0.0, step=50.0, format="%.2f", value=0.0)
             
             total_fees = processing_fee + admin_fee + documentation_fee
             net_disbursement = principal - total_fees
             
-            # Calculate EMI
             if principal > 0 and duration_months > 0:
                 emi = calculate_emi(principal, interest_rate, duration_months)
                 total_interest = calculate_total_interest(principal, emi, duration_months)
@@ -306,7 +298,6 @@ elif menu == "💰 Gold Loan Disbursement":
             else:
                 st.info("Enter principal and duration to calculate EMI.")
             
-            # Submit Loan
             if st.button("💰 Disburse Loan", use_container_width=True):
                 if principal <= 0 or duration_months <= 0:
                     st.error("⚠️ Please enter valid principal amount and duration.")
@@ -337,7 +328,6 @@ elif menu == "💰 Gold Loan Disbursement":
                     }
                     st.session_state.loans[loan_id] = loan_data
                     
-                    # Add to transactions
                     trans_id = f"T{datetime.now().strftime('%Y%m%d%H%M%S')}"
                     st.session_state.transactions[trans_id] = {
                         'date': datetime.now().strftime("%Y-%m-%d %H:%M:%S"),
@@ -350,8 +340,6 @@ elif menu == "💰 Gold Loan Disbursement":
                     
                     st.success(f"✅ Loan disbursed successfully! Loan ID: {loan_id}")
                     st.balloons()
-                    
-                    # Display agreement option
                     st.info(f"📄 Net amount disbursed: ₹{net_disbursement:,.2f}")
 
 # Party Ledger Module
@@ -361,20 +349,17 @@ elif menu == "📊 Party Ledger":
     if not st.session_state.parties:
         st.warning("⚠️ No parties available. Please add a party first.")
     else:
-        # Party Selection
         party_options = {f"{data['party_id']} - {data['party_name']}": pid 
                        for pid, data in st.session_state.parties.items()}
         selected_party = st.selectbox("Select Party for Ledger", list(party_options.keys()))
         party_id = party_options[selected_party]
         party_data = st.session_state.parties[party_id]
         
-        # Get all transactions for this party
         party_transactions = []
         for trans_id, trans_data in st.session_state.transactions.items():
             if trans_data['party_id'] == party_id:
                 party_transactions.append(trans_data)
         
-        # Get all loans for this party
         party_loans = []
         for loan_id, loan_data in st.session_state.loans.items():
             if loan_data['party_id'] == party_id:
@@ -383,7 +368,6 @@ elif menu == "📊 Party Ledger":
         if party_transactions or party_loans:
             st.markdown(f"### Ledger for: {party_data['party_name']} ({party_id})")
             
-            # Summary cards
             col1, col2, col3 = st.columns(3)
             with col1:
                 total_loan = sum([loan['net_disbursement'] for loan in party_loans])
@@ -395,53 +379,53 @@ elif menu == "📊 Party Ledger":
                 total_balance = sum([loan['outstanding_balance'] for loan in party_loans])
                 st.metric("Total Outstanding", f"₹{total_balance:,.2f}")
             
-            # Display loans
             if party_loans:
                 st.markdown("### Active Loans")
                 df_loans = pd.DataFrame(party_loans)
                 display_cols = ['loan_id', 'principal', 'emi', 'duration_months', 'outstanding_balance', 'status']
                 st.dataframe(df_loans[display_cols], use_container_width=True)
                 
-                # Repayment Section
                 st.markdown("### Make a Repayment")
                 col1, col2 = st.columns([2, 1])
                 with col1:
-                    selected_loan_id = st.selectbox("Select Loan for Repayment", 
-                                                  [loan['loan_id'] for loan in party_loans if loan['status'] == 'Active'])
-                    if selected_loan_id:
-                        loan_data = st.session_state.loans[selected_loan_id]
-                        repayment_amount = st.number_input("Repayment Amount (₹)", 
-                                                          min_value=0.0, 
-                                                          max_value=float(loan_data['outstanding_balance']),
-                                                          step=100.0,
-                                                          format="%.2f")
-                        
-                        if st.button("💳 Make Payment", use_container_width=True):
-                            if repayment_amount > 0:
-                                # Update loan
-                                loan_data['outstanding_balance'] -= repayment_amount
-                                loan_data['paid_amount'] += repayment_amount
-                                
-                                if loan_data['outstanding_balance'] <= 0:
-                                    loan_data['status'] = 'Closed'
-                                    loan_data['outstanding_balance'] = 0
-                                    st.success("✅ Loan fully repaid and closed!")
+                    active_loans = [loan for loan in party_loans if loan['status'] == 'Active']
+                    if active_loans:
+                        selected_loan_id = st.selectbox("Select Loan for Repayment", 
+                                                      [loan['loan_id'] for loan in active_loans])
+                        if selected_loan_id:
+                            loan_data = st.session_state.loans[selected_loan_id]
+                            repayment_amount = st.number_input("Repayment Amount (₹)", 
+                                                              min_value=0.0, 
+                                                              max_value=float(loan_data['outstanding_balance']),
+                                                              step=100.0,
+                                                              format="%.2f")
+                            
+                            if st.button("💳 Make Payment", use_container_width=True):
+                                if repayment_amount > 0:
+                                    loan_data['outstanding_balance'] -= repayment_amount
+                                    loan_data['paid_amount'] += repayment_amount
+                                    
+                                    if loan_data['outstanding_balance'] <= 0:
+                                        loan_data['status'] = 'Closed'
+                                        loan_data['outstanding_balance'] = 0
+                                        st.success("✅ Loan fully repaid and closed!")
+                                    else:
+                                        st.success(f"✅ Payment of ₹{repayment_amount:,.2f} recorded successfully!")
+                                    
+                                    trans_id = f"T{datetime.now().strftime('%Y%m%d%H%M%S')}"
+                                    st.session_state.transactions[trans_id] = {
+                                        'date': datetime.now().strftime("%Y-%m-%d %H:%M:%S"),
+                                        'party_id': party_id,
+                                        'party_name': party_data['party_name'],
+                                        'transaction_type': 'Loan Repayment',
+                                        'amount': repayment_amount,
+                                        'details': f'Loan ID: {selected_loan_id}'
+                                    }
+                                    st.rerun()
                                 else:
-                                    st.success(f"✅ Payment of ₹{repayment_amount:,.2f} recorded successfully!")
-                                
-                                # Add transaction
-                                trans_id = f"T{datetime.now().strftime('%Y%m%d%H%M%S')}"
-                                st.session_state.transactions[trans_id] = {
-                                    'date': datetime.now().strftime("%Y-%m-%d %H:%M:%S"),
-                                    'party_id': party_id,
-                                    'party_name': party_data['party_name'],
-                                    'transaction_type': 'Loan Repayment',
-                                    'amount': repayment_amount,
-                                    'details': f'Loan ID: {selected_loan_id}'
-                                }
-                                st.rerun()
-                            else:
-                                st.warning("Please enter a valid repayment amount.")
+                                    st.warning("Please enter a valid repayment amount.")
+                    else:
+                        st.info("No active loans for this party.")
                 
                 with col2:
                     if selected_loan_id:
@@ -456,7 +440,6 @@ elif menu == "📊 Party Ledger":
                         </div>
                         """, unsafe_allow_html=True)
             
-            # Display transaction history
             if party_transactions:
                 st.markdown("### Transaction History")
                 df_trans = pd.DataFrame(party_transactions)
@@ -475,23 +458,20 @@ elif menu == "💍 Gold Pledge Management":
         
         with tab1:
             with st.form("gold_pledge_form"):
-                # Party Selection
                 party_options = {f"{data['party_id']} - {data['party_name']}": pid 
                                for pid, data in st.session_state.parties.items()}
                 selected_party = st.selectbox("Select Party *", list(party_options.keys()))
                 party_id = party_options[selected_party]
                 
-                # Gold Details
                 st.markdown("### Gold Item Details")
                 item_description = st.text_area("Description of Ornaments *", 
                                               placeholder="e.g., Gold chain, Bangles, Rings")
-                item_count = st.number_input("Number of Items", min_value=1, step=1)
-                gross_weight = st.number_input("Gross Weight (grams) *", min_value=0.1, step=0.1, format="%.2f")
-                net_weight = st.number_input("Net Weight (grams) *", min_value=0.1, step=0.1, format="%.2f")
+                item_count = st.number_input("Number of Items", min_value=1, step=1, value=1)
+                gross_weight = st.number_input("Gross Weight (grams) *", min_value=0.1, step=0.1, format="%.2f", value=10.0)
+                net_weight = st.number_input("Net Weight (grams) *", min_value=0.1, step=0.1, format="%.2f", value=9.5)
                 purity = st.selectbox("Purity (Karat)", ["24K", "22K", "18K", "14K"])
                 
-                # Valuation
-                current_gold_rate = st.number_input("Current Gold Rate (per gram)", min_value=0.0, step=50.0, format="%.2f")
+                current_gold_rate = st.number_input("Current Gold Rate (per gram)", min_value=0.0, step=50.0, format="%.2f", value=5000.0)
                 appraised_value = net_weight * current_gold_rate if net_weight > 0 and current_gold_rate > 0 else 0
                 
                 st.markdown(f"""
@@ -500,7 +480,6 @@ elif menu == "💍 Gold Pledge Management":
                 </div>
                 """, unsafe_allow_html=True)
                 
-                # Locker Details
                 locker_id = st.text_input("Locker/Vault ID")
                 
                 submitted = st.form_submit_button("💍 Register Pledge")
@@ -527,7 +506,6 @@ elif menu == "💍 Gold Pledge Management":
                         }
                         st.session_state.gold_items[pledge_id] = gold_data
                         
-                        # Add to transactions
                         trans_id = f"T{datetime.now().strftime('%Y%m%d%H%M%S')}"
                         st.session_state.transactions[trans_id] = {
                             'date': datetime.now().strftime("%Y-%m-%d %H:%M:%S"),
@@ -556,7 +534,6 @@ elif menu == "📄 Loan Agreement":
     if not st.session_state.parties or not st.session_state.loans:
         st.warning("⚠️ Please add a party and disburse a loan first.")
     else:
-        # Select Party and Loan
         col1, col2 = st.columns(2)
         
         with col1:
@@ -567,7 +544,6 @@ elif menu == "📄 Loan Agreement":
             party_data = st.session_state.parties[party_id]
         
         with col2:
-            # Get loans for selected party
             party_loans = {loan['loan_id']: loan for loan in st.session_state.loans.values() 
                           if loan['party_id'] == party_id}
             if party_loans:
@@ -577,14 +553,12 @@ elif menu == "📄 Loan Agreement":
                 loan_id = loan_options[selected_loan]
                 loan_data = st.session_state.loans[loan_id]
                 
-                # Get gold pledge details
                 gold_pledges = [gold for gold in st.session_state.gold_items.values() 
                               if gold['party_id'] == party_id]
                 
                 if st.button("📄 Generate Agreement", use_container_width=True):
                     st.markdown("---")
                     
-                    # Agreement in Malayalam
                     agreement_text = f"""
                     <div style="background: white; padding: 2rem; border-radius: 10px; color: black; font-family: 'Noto Sans Malayalam', sans-serif;">
                         <h1 style="text-align: center; color: #FFD700; font-size: 2rem;">സ്വർണ്ണപ്പണയ ഉടമ്പടി</h1>
@@ -595,11 +569,11 @@ elif menu == "📄 Loan Agreement":
                         <table style="width: 100%; border-collapse: collapse; margin: 1rem 0;">
                             <tr><td style="padding: 8px; border: 1px solid #ddd;"><strong>പേര് (Name):</strong></td>
                                 <td style="padding: 8px; border: 1px solid #ddd;">{party_data['party_name']}</td></tr>
-                            <tr><td style="padding: 8px; border: 1px solid #ddd;"><strong>പിതാവ്/ഭർത്താവിന്റെ പേര് (Father/Husband Name):</strong></td>
+                            <tr><td style="padding: 8px; border: 1px solid #ddd;"><strong>പിതാവ്/ഭർത്താവിന്റെ പേര്:</strong></td>
                                 <td style="padding: 8px; border: 1px solid #ddd;">{party_data.get('spouse_name', 'N/A')}</td></tr>
                             <tr><td style="padding: 8px; border: 1px solid #ddd;"><strong>വിലാസം (Address):</strong></td>
                                 <td style="padding: 8px; border: 1px solid #ddd;">{party_data['address']}, {party_data['city']}, {party_data['pincode']}</td></tr>
-                            <tr><td style="padding: 8px; border: 1px solid #ddd;"><strong>മൊബൈൽ നമ്പർ (Mobile):</strong></td>
+                            <tr><td style="padding: 8px; border: 1px solid #ddd;"><strong>മൊബൈൽ നമ്പർ:</strong></td>
                                 <td style="padding: 8px; border: 1px solid #ddd;">{party_data['mobile']}</td></tr>
                             <tr><td style="padding: 8px; border: 1px solid #ddd;"><strong>തൊഴിൽ (Occupation):</strong></td>
                                 <td style="padding: 8px; border: 1px solid #ddd;">{party_data['occupation']}</td></tr>
@@ -609,36 +583,35 @@ elif menu == "📄 Loan Agreement":
                         
                         <h3>2. വായ്പയുടെ വിവരങ്ങൾ (Loan Details):</h3>
                         <table style="width: 100%; border-collapse: collapse; margin: 1rem 0;">
-                            <tr><td style="padding: 8px; border: 1px solid #ddd;"><strong>തുക (Principal Amount):</strong></td>
+                            <tr><td style="padding: 8px; border: 1px solid #ddd;"><strong>തുക (Principal):</strong></td>
                                 <td style="padding: 8px; border: 1px solid #ddd;">₹{loan_data['principal']:,.2f}</td></tr>
-                            <tr><td style="padding: 8px; border: 1px solid #ddd;"><strong>പലിശ നിരക്ക് (Interest Rate):</strong></td>
+                            <tr><td style="padding: 8px; border: 1px solid #ddd;"><strong>പലിശ നിരക്ക് (Interest):</strong></td>
                                 <td style="padding: 8px; border: 1px solid #ddd;">{loan_data['interest_rate']}% പ്രതിവർഷം</td></tr>
                             <tr><td style="padding: 8px; border: 1px solid #ddd;"><strong>കാലാവധി (Tenure):</strong></td>
                                 <td style="padding: 8px; border: 1px solid #ddd;">{loan_data['duration_months']} മാസം</td></tr>
                             <tr><td style="padding: 8px; border: 1px solid #ddd;"><strong>പ്രതിമാസ തവണ (EMI):</strong></td>
                                 <td style="padding: 8px; border: 1px solid #ddd;">₹{loan_data['emi']:,.2f}</td></tr>
-                            <tr><td style="padding: 8px; border: 1px solid #ddd;"><strong>പ്രോസസ്സിംഗ് ഫീസ് (Processing Fee):</strong></td>
+                            <tr><td style="padding: 8px; border: 1px solid #ddd;"><strong>പ്രോസസ്സിംഗ് ഫീസ്:</strong></td>
                                 <td style="padding: 8px; border: 1px solid #ddd;">₹{loan_data['processing_fee']:,.2f}</td></tr>
-                            <tr><td style="padding: 8px; border: 1px solid #ddd;"><strong>അഡ്മിൻ ഫീസ് (Admin Fee):</strong></td>
+                            <tr><td style="padding: 8px; border: 1px solid #ddd;"><strong>അഡ്മിൻ ഫീസ്:</strong></td>
                                 <td style="padding: 8px; border: 1px solid #ddd;">₹{loan_data['admin_fee']:,.2f}</td></tr>
-                            <tr><td style="padding: 8px; border: 1px solid #ddd;"><strong>ഡോക്യുമെന്റേഷൻ ഫീസ് (Documentation Fee):</strong></td>
+                            <tr><td style="padding: 8px; border: 1px solid #ddd;"><strong>ഡോക്യുമെന്റേഷൻ ഫീസ്:</strong></td>
                                 <td style="padding: 8px; border: 1px solid #ddd;">₹{loan_data['documentation_fee']:,.2f}</td></tr>
-                            <tr><td style="padding: 8px; border: 1px solid #ddd; background: #FFD700; font-weight: bold;">നൽകിയ തുക (Net Disbursed Amount):</td>
+                            <tr><td style="padding: 8px; border: 1px solid #ddd; background: #FFD700; font-weight: bold;">നൽകിയ തുക (Net Disbursed):</td>
                                 <td style="padding: 8px; border: 1px solid #ddd; background: #FFD700; font-weight: bold;">₹{loan_data['net_disbursement']:,.2f}</td></tr>
                         </table>
                     """
                     
-                    # Add Gold Details
                     if gold_pledges:
                         agreement_text += """
-                        <h3>3. സ്വർണ്ണത്തിന്റെ വിവരങ്ങൾ (Gold Pledge Details):</h3>
+                        <h3>3. സ്വർണ്ണത്തിന്റെ വിവരങ്ങൾ (Gold Details):</h3>
                         <table style="width: 100%; border-collapse: collapse; margin: 1rem 0;">
                             <tr style="background: #f0f2f6;">
-                                <th style="padding: 8px; border: 1px solid #ddd;">വിവരണം (Description)</th>
-                                <th style="padding: 8px; border: 1px solid #ddd;">എണ്ണം (Count)</th>
+                                <th style="padding: 8px; border: 1px solid #ddd;">വിവരണം</th>
+                                <th style="padding: 8px; border: 1px solid #ddd;">എണ്ണം</th>
                                 <th style="padding: 8px; border: 1px solid #ddd;">ഭാരം (g)</th>
-                                <th style="padding: 8px; border: 1px solid #ddd;">പ്യൂരിറ്റി (Purity)</th>
-                                <th style="padding: 8px; border: 1px solid #ddd;">മൂല്യം (Value)</th>
+                                <th style="padding: 8px; border: 1px solid #ddd;">പ്യൂരിറ്റി</th>
+                                <th style="padding: 8px; border: 1px solid #ddd;">മൂല്യം</th>
                             </tr>
                         """
                         for gold in gold_pledges:
@@ -653,23 +626,21 @@ elif menu == "📄 Loan Agreement":
                             """
                         agreement_text += "</table>"
                     
-                    # Terms and Conditions
                     agreement_text += """
-                        <h3>4. നിബന്ധനകളും വ്യവസ്ഥകളും (Terms and Conditions):</h3>
+                        <h3>4. നിബന്ധനകളും വ്യവസ്ഥകളും (Terms):</h3>
                         <ol>
                             <li>മുകളിൽ പറഞ്ഞ സ്വർണ്ണാഭരണങ്ങൾ എന്റെ സ്വന്തമാണെന്നും, അതിൽ മറ്റാർക്കും അവകാശമില്ലെന്നും ഞാൻ സാക്ഷ്യപ്പെടുത്തുന്നു.</li>
                             <li>വായ്പ തുകയും പലിശയും നിശ്ചയിച്ച കാലാവധിക്കുള്ളിൽ അടച്ചുതീർക്കുന്നതിന് ഞാൻ ബാദ്ധ്യസ്ഥനാണ്.</li>
-                            <li>വായ്പ തിരിച്ചടയ്ക്കുന്നതിൽ വീഴ്ച വരുത്തിയാൽ, ബാങ്കിന്/സ്ഥാപനത്തിന് പണയം വെച്ച സ്വർണ്ണം ലേലം ചെയ്യാനുള്ള അവകാശമുണ്ടായിരിക്കും.</li>
+                            <li>വായ്പ തിരിച്ചടയ്ക്കുന്നതിൽ വീഴ്ച വരുത്തിയാൽ, സ്ഥാപനത്തിന് പണയം വെച്ച സ്വർണ്ണം ലേലം ചെയ്യാനുള്ള അവകാശമുണ്ടായിരിക്കും.</li>
                             <li>പലിശ നിരക്കിലും മറ്റ് നിബന്ധനകളിലും മാറ്റം വരുത്താൻ സ്ഥാപനത്തിന് അധികാരമുണ്ട്.</li>
                             <li>വായ്പയുടെ ബാക്കി തുകയും പലിശയും പൂർണ്ണമായി അടച്ചതിന് ശേഷം മാത്രമേ സ്വർണ്ണം തിരികെ നൽകുകയുള്ളൂ.</li>
-                            <li>ഈ ഉടമ്പടി പ്രകാരമുള്ള എല്ലാ തർക്കങ്ങളും സ്ഥാപനത്തിന്റെ ആധികാരിക പരിധിയിൽ പരിഹരിക്കുന്നതായിരിക്കും.</li>
                         </ol>
                         <hr style="border: 1px solid #ddd; margin: 2rem 0;">
                         
                         <table style="width: 100%; margin: 2rem 0;">
                             <tr>
-                                <td style="padding: 20px;"><strong>ഒപ്പ് (Signature of Borrower):</strong> __________________</td>
-                                <td style="padding: 20px;"><strong>തീയതി (Date):</strong> {datetime.now().strftime('%d-%m-%Y')}</td>
+                                <td style="padding: 20px;"><strong>ഒപ്പ് (Signature):</strong> __________________</td>
+                                <td style="padding: 20px;"><strong>തീയതി (Date):</strong> """ + datetime.now().strftime('%d-%m-%Y') + """</td>
                             </tr>
                             <tr>
                                 <td style="padding: 20px;"><strong>സ്ഥലം (Place):</strong> __________________</td>
@@ -679,7 +650,7 @@ elif menu == "📄 Loan Agreement":
                         
                         <div style="background: #f0f2f6; padding: 1rem; border-radius: 5px; margin-top: 2rem;">
                             <p style="text-align: center; color: #666; font-size: 0.9rem;">
-                                <strong>Disclaimer:</strong> This is a system-generated agreement. Please verify all details before signing.
+                                <strong>Disclaimer:</strong> System-generated agreement. Please verify before signing.
                             </p>
                         </div>
                     </div>
@@ -687,7 +658,6 @@ elif menu == "📄 Loan Agreement":
                     
                     st.markdown(agreement_text, unsafe_allow_html=True)
                     
-                    # Download option
                     st.download_button(
                         label="📥 Download Agreement as HTML",
                         data=agreement_text,
@@ -702,7 +672,6 @@ elif menu == "📄 Loan Agreement":
 st.sidebar.markdown("---")
 st.sidebar.info("🏦 Gold Loan Management System v1.0\n\nDeveloped with ❤️ using Streamlit")
 
-# Display system stats in sidebar
 st.sidebar.markdown("### 📊 System Stats")
 st.sidebar.write(f"👤 Parties: {len(st.session_state.parties)}")
 st.sidebar.write(f"💰 Loans: {len(st.session_state.loans)}")

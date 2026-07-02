@@ -656,7 +656,7 @@ elif menu == "📄 Loan Agreement":
                     </div>
                     """
                     
-                    st.markdown(agreement_text, unsafe_allow_html=True)
+                    st.markdown(agreement_text, unsafe_allow_html=True) 
                     
                     st.download_button(
                         label="📥 Download Agreement as HTML",

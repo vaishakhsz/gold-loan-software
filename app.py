@@ -1,11 +1,12 @@
 # app.py - Gold Loan Management System
-# Updated with Simple Interest EMI Calculation
+# Updated with Simple Interest EMI Calculation & Malayalam Support
 
 import streamlit as st
 import pandas as pd
 import datetime
 from datetime import datetime, timedelta
 import calendar
+import base64
 
 # Page configuration
 st.set_page_config(
@@ -42,6 +43,13 @@ st.markdown("""
         border-left: 5px solid #FFD700;
         margin: 0.5rem 0;
     }
+    .info-box-gold {
+        background: #fff8e1;
+        padding: 1rem;
+        border-radius: 5px;
+        border-left: 5px solid #FFD700;
+        margin: 0.5rem 0;
+    }
     .stButton>button {
         width: 100%;
         background-color: #FFD700;
@@ -57,11 +65,19 @@ st.markdown("""
         border-radius: 10px;
         color: black;
         border: 2px solid #FFD700;
-        font-family: 'Noto Sans Malayalam', sans-serif;
+        font-family: 'Noto Sans Malayalam', 'Malayalam', sans-serif;
     }
-    .emi-schedule {
+    .malayalam-text {
+        font-family: 'Noto Sans Malayalam', 'Malayalam', 'Arial Unicode MS', sans-serif;
+        font-size: 16px;
+    }
+    .calculation-box {
+        background: #e8f5e9;
+        padding: 1rem;
+        border-radius: 5px;
+        border-left: 5px solid #4CAF50;
+        margin: 0.5rem 0;
         font-family: 'Courier New', monospace;
-        font-size: 14px;
     }
     .edit-highlight {
         background-color: #fff3cd;
@@ -72,7 +88,10 @@ st.markdown("""
     @media print {
         .no-print { display: none; }
         .print-box { border: none; }
+        .stApp { background: white; }
     }
+    /* Malayalam font support */
+    @import url('https://fonts.googleapis.com/css2?family=Noto+Sans+Malayalam:wght@400;700&display=swap');
     </style>
 """, unsafe_allow_html=True)
 
@@ -100,17 +119,21 @@ def generate_loan_id():
 def calculate_simple_interest_emi(principal, interest_rate, tenure_months):
     """
     Calculate EMI using Simple Interest method
-    Formula: Total Amount = Principal + (Principal × Rate × Time in Years)
+    Formula: 
+    Total Interest = Principal × Rate × Time (in years)
+    Total Amount = Principal + Total Interest
     EMI = Total Amount / Number of Months
     """
     tenure_years = tenure_months / 12
     total_interest = principal * (interest_rate / 100) * tenure_years
     total_amount = principal + total_interest
     emi = total_amount / tenure_months
+    
     return {
         'emi': round(emi, 2),
         'total_interest': round(total_interest, 2),
-        'total_amount': round(total_amount, 2)
+        'total_amount': round(total_amount, 2),
+        'tenure_years': round(tenure_years, 2)
     }
 
 def generate_emi_schedule_simple(principal, interest_rate, tenure_months, start_date):
@@ -121,18 +144,13 @@ def generate_emi_schedule_simple(principal, interest_rate, tenure_months, start_
     total_amount = result['total_amount']
     
     schedule = []
-    remaining_interest = total_interest
-    remaining_principal = principal
+    monthly_interest = total_interest / tenure_months
+    monthly_principal = emi - monthly_interest
+    remaining_balance = total_amount
     
     for i in range(1, tenure_months + 1):
-        # Calculate monthly interest (Simple Interest: equal distribution)
-        monthly_interest = total_interest / tenure_months
-        monthly_principal = emi - monthly_interest
+        remaining_balance -= emi
         
-        remaining_principal -= monthly_principal
-        remaining_interest -= monthly_interest
-        
-        # Calculate date
         if start_date:
             current_date = start_date + timedelta(days=30 * i)
         else:
@@ -144,9 +162,48 @@ def generate_emi_schedule_simple(principal, interest_rate, tenure_months, start_
             'EMI': round(emi, 2),
             'Interest': round(monthly_interest, 2),
             'Principal': round(monthly_principal, 2),
-            'Balance': round(max(0, remaining_principal + remaining_interest), 2)
+            'Balance': round(max(0, remaining_balance), 2)
         })
     return schedule
+
+def get_emi_calculation_breakdown(principal, interest_rate, tenure_months):
+    """Get detailed breakdown of EMI calculation"""
+    result = calculate_simple_interest_emi(principal, interest_rate, tenure_months)
+    
+    breakdown = f"""
+    📊 **Simple Interest Calculation Breakdown:**
+    
+    Principal Amount (P) = ₹{principal:,.2f}
+    Interest Rate (R) = {interest_rate}% per annum
+    Tenure (T) = {tenure_months} months = {tenure_months/12:.1f} years
+    
+    ──────────────────────────────────────────────
+    
+    **Step 1: Calculate Total Interest**
+    Total Interest = P × R × T
+    = ₹{principal:,.2f} × {interest_rate}% × {tenure_months/12:.1f}
+    = **₹{result['total_interest']:,.2f}**
+    
+    **Step 2: Calculate Total Amount Due**
+    Total Amount = Principal + Total Interest
+    = ₹{principal:,.2f} + ₹{result['total_interest']:,.2f}
+    = **₹{result['total_amount']:,.2f}**
+    
+    **Step 3: Calculate Monthly EMI**
+    EMI = Total Amount / Number of Months
+    = ₹{result['total_amount']:,.2f} / {tenure_months}
+    = **₹{result['emi']:,.2f}**
+    
+    ──────────────────────────────────────────────
+    
+    **Summary:**
+    • Monthly Interest Component: ₹{result['total_interest']/tenure_months:,.2f}
+    • Monthly Principal Component: ₹{(result['total_amount']/tenure_months) - (result['total_interest']/tenure_months):,.2f}
+    • Total Interest Payable: ₹{result['total_interest']:,.2f}
+    • Total Amount Payable: ₹{result['total_amount']:,.2f}
+    • Monthly EMI: ₹{result['emi']:,.2f}
+    """
+    return breakdown, result
 
 # Main Application
 st.markdown('<h1 class="main-header">🏦 Gold Loan Management System</h1>', unsafe_allow_html=True)
@@ -425,7 +482,7 @@ elif menu == "💰 Gold Loan Disbursement":
             """, unsafe_allow_html=True)
             
             st.markdown("### Loan Details")
-            principal = st.number_input("Principal Amount (₹) *", min_value=1000.0, step=500.0, format="%.2f", value=100000.0)
+            principal = st.number_input("Principal Amount (₹) *", min_value=1000.0, step=500.0, format="%.2f", value=39475.0)
             interest_rate = st.number_input("Interest Rate (% per annum) *", min_value=0.0, max_value=36.0, step=0.5, format="%.1f", value=12.0)
             duration_months = st.number_input("Duration (Months) *", min_value=1, max_value=60, step=1, value=12)
             
@@ -437,7 +494,7 @@ elif menu == "💰 Gold Loan Disbursement":
         
         with col2:
             st.markdown("### Fee Structure")
-            processing_fee = st.number_input("Processing Fee (₹)", min_value=0.0, step=50.0, format="%.2f", value=0.0)
+            processing_fee = st.number_input("Processing Fee (₹)", min_value=0.0, step=50.0, format="%.2f", value=900.0)
             admin_fee = st.number_input("Admin Fee (₹)", min_value=0.0, step=50.0, format="%.2f", value=0.0)
             documentation_fee = st.number_input("Documentation Fee (₹)", min_value=0.0, step=50.0, format="%.2f", value=0.0)
             
@@ -456,38 +513,26 @@ elif menu == "💰 Gold Loan Disbursement":
                 
                 st.markdown("### Loan Summary")
                 st.markdown(f"""
-                <div class="info-box">
-                    <strong>Calculations (Simple Interest):</strong><br>
-                    Principal: ₹{principal:,.2f}<br>
+                <div class="info-box-gold">
+                    <strong>📊 Simple Interest Calculation:</strong><br>
+                    Principal Amount: ₹{principal:,.2f}<br>
                     Interest Rate: {interest_rate}% p.a.<br>
                     Tenure: {duration_months} months ({duration_months/12:.1f} years)<br>
+                    <hr>
                     <strong>Total Interest: ₹{total_interest:,.2f}</strong><br>
                     <strong>Total Amount Due: ₹{total_amount:,.2f}</strong><br>
                     <strong>EMI: ₹{emi:,.2f}</strong><br>
+                    <hr>
+                    Processing Fee: ₹{processing_fee:,.2f}<br>
                     Total Fees: ₹{total_fees:,.2f}<br>
-                    <strong>Net Disbursement: ₹{net_disbursement:,.2f}</strong><br>
-                    EMI Start Date: {emi_start_date.strftime('%d-%m-%Y')}<br>
-                    EMI End Date: {emi_end_date.strftime('%d-%m-%Y')}
+                    <strong>Net Disbursement: ₹{net_disbursement:,.2f}</strong>
                 </div>
                 """, unsafe_allow_html=True)
                 
                 # Show calculation breakdown
-                with st.expander("📊 View Calculation Breakdown"):
-                    st.markdown(f"""
-                    **Simple Interest Calculation:**
-                    
-                    Total Interest = Principal × Rate × Time
-                    = ₹{principal:,.2f} × {interest_rate}% × {duration_months/12:.1f} years
-                    = ₹{total_interest:,.2f}
-                    
-                    Total Amount Due = Principal + Total Interest
-                    = ₹{principal:,.2f} + ₹{total_interest:,.2f}
-                    = ₹{total_amount:,.2f}
-                    
-                    EMI = Total Amount Due / Number of Months
-                    = ₹{total_amount:,.2f} / {duration_months}
-                    = ₹{emi:,.2f}
-                    """)
+                with st.expander("📊 View Complete Calculation Breakdown"):
+                    breakdown, _ = get_emi_calculation_breakdown(principal, interest_rate, duration_months)
+                    st.markdown(f'<div class="calculation-box">{breakdown}</div>', unsafe_allow_html=True)
             else:
                 st.info("Enter principal and duration to calculate EMI.")
             
@@ -522,7 +567,8 @@ elif menu == "💰 Gold Loan Disbursement":
                         'outstanding_balance': result['total_amount'],
                         'paid_amount': 0,
                         'remaining_tenure': duration_months,
-                        'emi_schedule': generate_emi_schedule_simple(principal, interest_rate, duration_months, emi_start_date)
+                        'emi_schedule': generate_emi_schedule_simple(principal, interest_rate, duration_months, emi_start_date),
+                        'calculation_breakdown': get_emi_calculation_breakdown(principal, interest_rate, duration_months)[0]
                     }
                     st.session_state.loans[loan_id] = loan_data
                     
@@ -555,7 +601,7 @@ elif menu == "📅 EMI Schedule":
         loan_data = st.session_state.loans[loan_id]
         
         st.markdown(f"""
-        <div class="info-box">
+        <div class="info-box-gold">
             <strong>Loan Details:</strong><br>
             Party: {loan_data['party_name']}<br>
             Principal: ₹{loan_data['principal']:,.2f}<br>
@@ -568,6 +614,11 @@ elif menu == "📅 EMI Schedule":
             EMI End Date: {datetime.strptime(loan_data['emi_end_date'], '%Y-%m-%d').strftime('%d-%m-%Y')}
         </div>
         """, unsafe_allow_html=True)
+        
+        # Show calculation breakdown
+        if 'calculation_breakdown' in loan_data:
+            with st.expander("📊 Calculation Breakdown"):
+                st.markdown(f'<div class="calculation-box">{loan_data["calculation_breakdown"]}</div>', unsafe_allow_html=True)
         
         # Display EMI Schedule
         if 'emi_schedule' in loan_data:
@@ -590,7 +641,7 @@ elif menu == "📅 EMI Schedule":
                 st.markdown("---")
                 st.markdown(f"""
                 <div class="print-box">
-                    <h2 style="text-align: center;">EMI Schedule</h2>
+                    <h2 style="text-align: center;">📊 EMI Schedule</h2>
                     <p><strong>Loan ID:</strong> {loan_data['loan_id']}</p>
                     <p><strong>Party:</strong> {loan_data['party_name']}</p>
                     <p><strong>Principal:</strong> ₹{loan_data['principal']:,.2f}</p>
@@ -736,7 +787,7 @@ elif menu == "💍 Gold Pledge Management":
                 appraised_value = net_weight * current_gold_rate if net_weight > 0 and current_gold_rate > 0 else 0
                 
                 st.markdown(f"""
-                <div class="info-box">
+                <div class="info-box-gold">
                     <strong>Appraised Value: ₹{appraised_value:,.2f}</strong>
                 </div>
                 """, unsafe_allow_html=True)
@@ -788,7 +839,7 @@ elif menu == "💍 Gold Pledge Management":
             else:
                 st.info("No gold pledges registered yet.")
 
-# Loan Agreement Module
+# Loan Agreement Module - Complete Malayalam
 elif menu == "📄 Loan Agreement":
     st.markdown('<h2 class="sub-header">📄 Gold Loan Agreement (Malayalam)</h2>', unsafe_allow_html=True)
     
@@ -823,106 +874,121 @@ elif menu == "📄 Loan Agreement":
                     emi_start = datetime.strptime(loan_data['emi_start_date'], '%Y-%m-%d').strftime('%d-%m-%Y')
                     emi_end = datetime.strptime(loan_data['emi_end_date'], '%Y-%m-%d').strftime('%d-%m-%Y')
                     
+                    # Malayalam Agreement with proper Unicode support
                     agreement_text = f"""
-                    <div class="print-box" style="background: white; padding: 2rem; border-radius: 10px; color: black; font-family: 'Noto Sans Malayalam', sans-serif;">
+                    <div class="print-box" style="background: white; padding: 2rem; border-radius: 10px; color: black; font-family: 'Noto Sans Malayalam', 'Malayalam', 'Arial Unicode MS', sans-serif;">
                         <h1 style="text-align: center; color: #FFD700; font-size: 2rem;">സ്വർണ്ണപ്പണയ ഉടമ്പടി</h1>
-                        <p style="text-align: center;">(Gold Loan Agreement)</p>
+                        <p style="text-align: center; font-size: 1.1rem;">(Gold Loan Agreement)</p>
                         <hr style="border: 2px solid #FFD700;">
                         
-                        <h3>1. പാർട്ടി വിവരങ്ങൾ (Party Details):</h3>
+                        <h3 style="color: #2c3e50;">1. പാർട്ടി വിവരങ്ങൾ (Party Details)</h3>
                         <table style="width: 100%; border-collapse: collapse; margin: 1rem 0;">
-                            <tr><td style="padding: 8px; border: 1px solid #ddd;"><strong>പേര് (Name):</strong></td>
-                                <td style="padding: 8px; border: 1px solid #ddd;">{party_data['party_name']}</td></tr>
-                            <tr><td style="padding: 8px; border: 1px solid #ddd;"><strong>പിതാവ്/ഭർത്താവിന്റെ പേര്:</strong></td>
-                                <td style="padding: 8px; border: 1px solid #ddd;">{party_data.get('spouse_name', 'N/A')}</td></tr>
-                            <tr><td style="padding: 8px; border: 1px solid #ddd;"><strong>വിലാസം (Address):</strong></td>
-                                <td style="padding: 8px; border: 1px solid #ddd;">{party_data['address']}, {party_data['city']}, {party_data['pincode']}</td></tr>
-                            <tr><td style="padding: 8px; border: 1px solid #ddd;"><strong>മൊബൈൽ നമ്പർ:</strong></td>
-                                <td style="padding: 8px; border: 1px solid #ddd;">{party_data['mobile']}</td></tr>
-                            <tr><td style="padding: 8px; border: 1px solid #ddd;"><strong>തൊഴിൽ (Occupation):</strong></td>
-                                <td style="padding: 8px; border: 1px solid #ddd;">{party_data['occupation']}</td></tr>
-                            <tr><td style="padding: 8px; border: 1px solid #ddd;"><strong>യോഗ്യത (Qualification):</strong></td>
-                                <td style="padding: 8px; border: 1px solid #ddd;">{party_data['qualification']}</td></tr>
+                            <tr><td style="padding: 10px; border: 1px solid #ddd; background: #f9f9f9; font-weight: bold;">പേര് (Name):</td>
+                                <td style="padding: 10px; border: 1px solid #ddd;">{party_data['party_name']}</td></tr>
+                            <tr><td style="padding: 10px; border: 1px solid #ddd; background: #f9f9f9; font-weight: bold;">പിതാവ്/ഭർത്താവിന്റെ പേര് (Father/Husband):</td>
+                                <td style="padding: 10px; border: 1px solid #ddd;">{party_data.get('spouse_name', 'N/A')}</td></tr>
+                            <tr><td style="padding: 10px; border: 1px solid #ddd; background: #f9f9f9; font-weight: bold;">വിലാസം (Address):</td>
+                                <td style="padding: 10px; border: 1px solid #ddd;">{party_data['address']}, {party_data['city']}, {party_data['pincode']}</td></tr>
+                            <tr><td style="padding: 10px; border: 1px solid #ddd; background: #f9f9f9; font-weight: bold;">മൊബൈൽ നമ്പർ (Mobile):</td>
+                                <td style="padding: 10px; border: 1px solid #ddd;">{party_data['mobile']}</td></tr>
+                            <tr><td style="padding: 10px; border: 1px solid #ddd; background: #f9f9f9; font-weight: bold;">തൊഴിൽ (Occupation):</td>
+                                <td style="padding: 10px; border: 1px solid #ddd;">{party_data['occupation']}</td></tr>
+                            <tr><td style="padding: 10px; border: 1px solid #ddd; background: #f9f9f9; font-weight: bold;">യോഗ്യത (Qualification):</td>
+                                <td style="padding: 10px; border: 1px solid #ddd;">{party_data['qualification']}</td></tr>
                         </table>
                         
-                        <h3>2. വായ്പയുടെ വിവരങ്ങൾ (Loan Details):</h3>
+                        <h3 style="color: #2c3e50;">2. വായ്പയുടെ വിവരങ്ങൾ (Loan Details)</h3>
                         <table style="width: 100%; border-collapse: collapse; margin: 1rem 0;">
-                            <tr><td style="padding: 8px; border: 1px solid #ddd;"><strong>തുക (Principal):</strong></td>
-                                <td style="padding: 8px; border: 1px solid #ddd;">₹{loan_data['principal']:,.2f}</td></tr>
-                            <tr><td style="padding: 8px; border: 1px solid #ddd;"><strong>പലിശ നിരക്ക് (Interest Rate):</strong></td>
-                                <td style="padding: 8px; border: 1px solid #ddd;">{loan_data['interest_rate']}% പ്രതിവർഷം</td></tr>
-                            <tr><td style="padding: 8px; border: 1px solid #ddd;"><strong>കാലാവധി (Tenure):</strong></td>
-                                <td style="padding: 8px; border: 1px solid #ddd;">{loan_data['duration_months']} മാസം</td></tr>
-                            <tr><td style="padding: 8px; border: 1px solid #ddd;"><strong>മൊത്തം പലിശ (Total Interest):</strong></td>
-                                <td style="padding: 8px; border: 1px solid #ddd;">₹{loan_data['total_interest']:,.2f}</td></tr>
-                            <tr><td style="padding: 8px; border: 1px solid #ddd;"><strong>മൊത്തം തുക (Total Amount Due):</strong></td>
-                                <td style="padding: 8px; border: 1px solid #ddd;">₹{loan_data['total_amount']:,.2f}</td></tr>
-                            <tr><td style="padding: 8px; border: 1px solid #ddd;"><strong>പ്രതിമാസ തവണ (EMI):</strong></td>
-                                <td style="padding: 8px; border: 1px solid #ddd;">₹{loan_data['emi']:,.2f}</td></tr>
-                            <tr><td style="padding: 8px; border: 1px solid #ddd;"><strong>EMI ആരംഭ തീയതി:</strong></td>
-                                <td style="padding: 8px; border: 1px solid #ddd;">{emi_start}</td></tr>
-                            <tr><td style="padding: 8px; border: 1px solid #ddd;"><strong>EMI അവസാന തീയതി:</strong></td>
-                                <td style="padding: 8px; border: 1px solid #ddd;">{emi_end}</td></tr>
-                            <tr><td style="padding: 8px; border: 1px solid #ddd;"><strong>പ്രോസസ്സിംഗ് ഫീസ്:</strong></td>
-                                <td style="padding: 8px; border: 1px solid #ddd;">₹{loan_data['processing_fee']:,.2f}</td></tr>
-                            <tr><td style="padding: 8px; border: 1px solid #ddd;"><strong>അഡ്മിൻ ഫീസ്:</strong></td>
-                                <td style="padding: 8px; border: 1px solid #ddd;">₹{loan_data['admin_fee']:,.2f}</td></tr>
-                            <tr><td style="padding: 8px; border: 1px solid #ddd;"><strong>ഡോക്യുമെന്റേഷൻ ഫീസ്:</strong></td>
-                                <td style="padding: 8px; border: 1px solid #ddd;">₹{loan_data['documentation_fee']:,.2f}</td></tr>
-                            <tr><td style="padding: 8px; border: 1px solid #ddd; background: #FFD700; font-weight: bold;">നൽകിയ തുക (Net Disbursed):</td>
-                                <td style="padding: 8px; border: 1px solid #ddd; background: #FFD700; font-weight: bold;">₹{loan_data['net_disbursement']:,.2f}</td></tr>
+                            <tr><td style="padding: 10px; border: 1px solid #ddd; background: #f9f9f9; font-weight: bold;">തുക (Principal):</td>
+                                <td style="padding: 10px; border: 1px solid #ddd;">₹{loan_data['principal']:,.2f}</td></tr>
+                            <tr><td style="padding: 10px; border: 1px solid #ddd; background: #f9f9f9; font-weight: bold;">പലിശ നിരക്ക് (Interest Rate):</td>
+                                <td style="padding: 10px; border: 1px solid #ddd;">{loan_data['interest_rate']}% പ്രതിവർഷം</td></tr>
+                            <tr><td style="padding: 10px; border: 1px solid #ddd; background: #f9f9f9; font-weight: bold;">കാലാവധി (Tenure):</td>
+                                <td style="padding: 10px; border: 1px solid #ddd;">{loan_data['duration_months']} മാസം</td></tr>
+                            <tr><td style="padding: 10px; border: 1px solid #ddd; background: #f9f9f9; font-weight: bold;">മൊത്തം പലിശ (Total Interest):</td>
+                                <td style="padding: 10px; border: 1px solid #ddd;">₹{loan_data['total_interest']:,.2f}</td></tr>
+                            <tr><td style="padding: 10px; border: 1px solid #ddd; background: #f9f9f9; font-weight: bold;">മൊത്തം തുക (Total Amount Due):</td>
+                                <td style="padding: 10px; border: 1px solid #ddd; background: #fff8e1; font-weight: bold;">₹{loan_data['total_amount']:,.2f}</td></tr>
+                            <tr><td style="padding: 10px; border: 1px solid #ddd; background: #f9f9f9; font-weight: bold;">പ്രതിമാസ തവണ (EMI):</td>
+                                <td style="padding: 10px; border: 1px solid #ddd; background: #fff8e1; font-weight: bold;">₹{loan_data['emi']:,.2f}</td></tr>
+                            <tr><td style="padding: 10px; border: 1px solid #ddd; background: #f9f9f9; font-weight: bold;">EMI ആരംഭ തീയതി (Start Date):</td>
+                                <td style="padding: 10px; border: 1px solid #ddd;">{emi_start}</td></tr>
+                            <tr><td style="padding: 10px; border: 1px solid #ddd; background: #f9f9f9; font-weight: bold;">EMI അവസാന തീയതി (End Date):</td>
+                                <td style="padding: 10px; border: 1px solid #ddd;">{emi_end}</td></tr>
+                            <tr><td style="padding: 10px; border: 1px solid #ddd; background: #f9f9f9; font-weight: bold;">പ്രോസസ്സിംഗ് ഫീസ് (Processing Fee):</td>
+                                <td style="padding: 10px; border: 1px solid #ddd;">₹{loan_data['processing_fee']:,.2f}</td></tr>
+                            <tr><td style="padding: 10px; border: 1px solid #ddd; background: #f9f9f9; font-weight: bold;">അഡ്മിൻ ഫീസ് (Admin Fee):</td>
+                                <td style="padding: 10px; border: 1px solid #ddd;">₹{loan_data['admin_fee']:,.2f}</td></tr>
+                            <tr><td style="padding: 10px; border: 1px solid #ddd; background: #f9f9f9; font-weight: bold;">ഡോക്യുമെന്റേഷൻ ഫീസ് (Doc Fee):</td>
+                                <td style="padding: 10px; border: 1px solid #ddd;">₹{loan_data['documentation_fee']:,.2f}</td></tr>
+                            <tr><td style="padding: 10px; border: 1px solid #ddd; background: #FFD700; font-weight: bold; font-size: 1.1rem;">നൽകിയ തുക (Net Disbursed):</td>
+                                <td style="padding: 10px; border: 1px solid #ddd; background: #FFD700; font-weight: bold; font-size: 1.1rem;">₹{loan_data['net_disbursement']:,.2f}</td></tr>
                         </table>
                     """
                     
+                    # Add Gold Details if available
                     if gold_pledges:
                         agreement_text += """
-                        <h3>3. സ്വർണ്ണത്തിന്റെ വിവരങ്ങൾ (Gold Details):</h3>
+                        <h3 style="color: #2c3e50;">3. സ്വർണ്ണത്തിന്റെ വിവരങ്ങൾ (Gold Details)</h3>
                         <table style="width: 100%; border-collapse: collapse; margin: 1rem 0;">
-                            <tr style="background: #f0f2f6;">
-                                <th style="padding: 8px; border: 1px solid #ddd;">വിവരണം</th>
-                                <th style="padding: 8px; border: 1px solid #ddd;">എണ്ണം</th>
-                                <th style="padding: 8px; border: 1px solid #ddd;">ഭാരം (g)</th>
-                                <th style="padding: 8px; border: 1px solid #ddd;">പ്യൂരിറ്റി</th>
-                                <th style="padding: 8px; border: 1px solid #ddd;">മൂല്യം</th>
+                            <tr style="background: #FFD700;">
+                                <th style="padding: 10px; border: 1px solid #ddd;">വിവരണം</th>
+                                <th style="padding: 10px; border: 1px solid #ddd;">എണ്ണം</th>
+                                <th style="padding: 10px; border: 1px solid #ddd;">ഭാരം (g)</th>
+                                <th style="padding: 10px; border: 1px solid #ddd;">പ്യൂരിറ്റി</th>
+                                <th style="padding: 10px; border: 1px solid #ddd;">മൂല്യം</th>
                             </tr>
                         """
                         for gold in gold_pledges:
                             agreement_text += f"""
                             <tr>
-                                <td style="padding: 8px; border: 1px solid #ddd;">{gold['item_description']}</td>
-                                <td style="padding: 8px; border: 1px solid #ddd; text-align: center;">{gold['item_count']}</td>
-                                <td style="padding: 8px; border: 1px solid #ddd; text-align: center;">{gold['net_weight']:.2f}g</td>
-                                <td style="padding: 8px; border: 1px solid #ddd; text-align: center;">{gold['purity']}</td>
-                                <td style="padding: 8px; border: 1px solid #ddd; text-align: right;">₹{gold['appraised_value']:,.2f}</td>
+                                <td style="padding: 10px; border: 1px solid #ddd;">{gold['item_description']}</td>
+                                <td style="padding: 10px; border: 1px solid #ddd; text-align: center;">{gold['item_count']}</td>
+                                <td style="padding: 10px; border: 1px solid #ddd; text-align: center;">{gold['net_weight']:.2f}g</td>
+                                <td style="padding: 10px; border: 1px solid #ddd; text-align: center;">{gold['purity']}</td>
+                                <td style="padding: 10px; border: 1px solid #ddd; text-align: right;">₹{gold['appraised_value']:,.2f}</td>
                             </tr>
                             """
                         agreement_text += "</table>"
                     
+                    # Terms and Conditions in Malayalam
                     agreement_text += """
-                        <h3>4. നിബന്ധനകളും വ്യവസ്ഥകളും (Terms):</h3>
-                        <ol>
+                        <h3 style="color: #2c3e50;">4. നിബന്ധനകളും വ്യവസ്ഥകളും (Terms and Conditions)</h3>
+                        <ol style="line-height: 1.8;">
                             <li>മുകളിൽ പറഞ്ഞ സ്വർണ്ണാഭരണങ്ങൾ എന്റെ സ്വന്തമാണെന്നും, അതിൽ മറ്റാർക്കും അവകാശമില്ലെന്നും ഞാൻ സാക്ഷ്യപ്പെടുത്തുന്നു.</li>
                             <li>വായ്പ തുകയും പലിശയും നിശ്ചയിച്ച കാലാവധിക്കുള്ളിൽ അടച്ചുതീർക്കുന്നതിന് ഞാൻ ബാദ്ധ്യസ്ഥനാണ്.</li>
                             <li>വായ്പ തിരിച്ചടയ്ക്കുന്നതിൽ വീഴ്ച വരുത്തിയാൽ, സ്ഥാപനത്തിന് പണയം വെച്ച സ്വർണ്ണം ലേലം ചെയ്യാനുള്ള അവകാശമുണ്ടായിരിക്കും.</li>
                             <li>പലിശ നിരക്കിലും മറ്റ് നിബന്ധനകളിലും മാറ്റം വരുത്താൻ സ്ഥാപനത്തിന് അധികാരമുണ്ട്.</li>
                             <li>വായ്പയുടെ ബാക്കി തുകയും പലിശയും പൂർണ്ണമായി അടച്ചതിന് ശേഷം മാത്രമേ സ്വർണ്ണം തിരികെ നൽകുകയുള്ളൂ.</li>
+                            <li>ഈ ഉടമ്പടിയിലെ എല്ലാ നിബന്ധനകളും ഞാൻ വായിച്ചു മനസ്സിലാക്കി സമ്മതിക്കുന്നു.</li>
                         </ol>
                         <hr style="border: 1px solid #ddd; margin: 2rem 0;">
                         
                         <table style="width: 100%; margin: 2rem 0;">
                             <tr>
-                                <td style="padding: 20px;"><strong>ഒപ്പ് (Signature):</strong> __________________</td>
-                                <td style="padding: 20px;"><strong>തീയതി (Date):</strong> """ + datetime.now().strftime('%d-%m-%Y') + """</td>
+                                <td style="padding: 20px; width: 50%;">
+                                    <strong>ഒപ്പ് (Signature):</strong> __________________<br>
+                                    <span style="font-size: 0.9rem; color: #666;">(വായ്പക്കാരൻ / Borrower)</span>
+                                </td>
+                                <td style="padding: 20px; width: 50%;">
+                                    <strong>തീയതി (Date):</strong> """ + datetime.now().strftime('%d-%m-%Y') + """
+                                </td>
                             </tr>
                             <tr>
-                                <td style="padding: 20px;"><strong>സ്ഥലം (Place):</strong> __________________</td>
-                                <td style="padding: 20px;"><strong>സാക്ഷി (Witness):</strong> __________________</td>
+                                <td style="padding: 20px;">
+                                    <strong>സ്ഥലം (Place):</strong> __________________
+                                </td>
+                                <td style="padding: 20px;">
+                                    <strong>സാക്ഷി (Witness):</strong> __________________<br>
+                                    <span style="font-size: 0.9rem; color: #666;">(പേരും ഒപ്പും / Name & Signature)</span>
+                                </td>
                             </tr>
                         </table>
                         
-                        <div style="background: #f0f2f6; padding: 1rem; border-radius: 5px; margin-top: 2rem;">
-                            <p style="text-align: center; color: #666; font-size: 0.9rem;">
-                                <strong>Disclaimer:</strong> System-generated agreement. Please verify before signing.
+                        <div style="background: #f0f2f6; padding: 1rem; border-radius: 5px; margin-top: 2rem; text-align: center;">
+                            <p style="color: #666; font-size: 0.9rem;">
+                                <strong>⚠️ Disclaimer:</strong> This is a system-generated agreement. Please verify all details before signing.
+                                <br>ഈ ഉടമ്പടി സിസ്റ്റം ജനറേറ്റ് ചെയ്തതാണ്. ഒപ്പ് വയ്ക്കുന്നതിന് മുമ്പ് എല്ലാ വിശദാംശങ്ങളും പരിശോധിക്കുക.
                             </p>
                         </div>
                     </div>
@@ -942,7 +1008,7 @@ elif menu == "📄 Loan Agreement":
                         )
                     with col2:
                         st.markdown("""
-                        <button onclick="window.print()" style="width:100%; padding:0.75rem; background:#FFD700; color:#1a1a2e; border:none; border-radius:5px; font-weight:bold; cursor:pointer;">
+                        <button onclick="window.print()" style="width:100%; padding:0.75rem; background:#FFD700; color:#1a1a2e; border:none; border-radius:5px; font-weight:bold; cursor:pointer; font-size:1rem;">
                             🖨️ Print Agreement
                         </button>
                         """, unsafe_allow_html=True)

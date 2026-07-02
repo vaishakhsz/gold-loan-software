@@ -1,5 +1,5 @@
 # app.py - Gold Loan Management System
-# Complete version with EMI dates, full editing, and print functionality
+# Updated with Simple Interest EMI Calculation
 
 import streamlit as st
 import pandas as pd
@@ -87,10 +87,6 @@ if 'transactions' not in st.session_state:
     st.session_state.transactions = {}
 if 'party_counter' not in st.session_state:
     st.session_state.party_counter = 1
-if 'edit_mode' not in st.session_state:
-    st.session_state.edit_mode = False
-if 'edit_party_id' not in st.session_state:
-    st.session_state.edit_party_id = None
 
 # Helper functions
 def generate_party_id():
@@ -101,31 +97,40 @@ def generate_party_id():
 def generate_loan_id():
     return f"L{datetime.now().strftime('%Y%m%d')}{str(len(st.session_state.loans) + 1).zfill(3)}"
 
-def calculate_emi(principal, interest_rate, tenure_months):
-    """Calculate EMI using formula: EMI = P * r * (1+r)^n / ((1+r)^n - 1)"""
-    if interest_rate == 0:
-        return principal / tenure_months
-    monthly_rate = interest_rate / 12 / 100
-    emi = principal * monthly_rate * ((1 + monthly_rate) ** tenure_months) / (((1 + monthly_rate) ** tenure_months) - 1)
-    return round(emi, 2)
+def calculate_simple_interest_emi(principal, interest_rate, tenure_months):
+    """
+    Calculate EMI using Simple Interest method
+    Formula: Total Amount = Principal + (Principal × Rate × Time in Years)
+    EMI = Total Amount / Number of Months
+    """
+    tenure_years = tenure_months / 12
+    total_interest = principal * (interest_rate / 100) * tenure_years
+    total_amount = principal + total_interest
+    emi = total_amount / tenure_months
+    return {
+        'emi': round(emi, 2),
+        'total_interest': round(total_interest, 2),
+        'total_amount': round(total_amount, 2)
+    }
 
-def calculate_total_payment(emi, tenure_months):
-    return emi * tenure_months
-
-def calculate_total_interest(principal, emi, tenure_months):
-    return calculate_total_payment(emi, tenure_months) - principal
-
-def generate_emi_schedule(principal, interest_rate, tenure_months, start_date):
-    """Generate EMI schedule with dates"""
-    emi = calculate_emi(principal, interest_rate, tenure_months)
+def generate_emi_schedule_simple(principal, interest_rate, tenure_months, start_date):
+    """Generate EMI schedule with Simple Interest calculation"""
+    result = calculate_simple_interest_emi(principal, interest_rate, tenure_months)
+    emi = result['emi']
+    total_interest = result['total_interest']
+    total_amount = result['total_amount']
+    
     schedule = []
-    balance = principal
-    monthly_rate = interest_rate / 12 / 100
+    remaining_interest = total_interest
+    remaining_principal = principal
     
     for i in range(1, tenure_months + 1):
-        interest = balance * monthly_rate
-        principal_paid = emi - interest
-        balance -= principal_paid
+        # Calculate monthly interest (Simple Interest: equal distribution)
+        monthly_interest = total_interest / tenure_months
+        monthly_principal = emi - monthly_interest
+        
+        remaining_principal -= monthly_principal
+        remaining_interest -= monthly_interest
         
         # Calculate date
         if start_date:
@@ -137,9 +142,9 @@ def generate_emi_schedule(principal, interest_rate, tenure_months, start_date):
             'Month': i,
             'Date': current_date.strftime('%d-%m-%Y'),
             'EMI': round(emi, 2),
-            'Interest': round(interest, 2),
-            'Principal': round(principal_paid, 2),
-            'Balance': round(max(0, balance), 2)
+            'Interest': round(monthly_interest, 2),
+            'Principal': round(monthly_principal, 2),
+            'Balance': round(max(0, remaining_principal + remaining_interest), 2)
         })
     return schedule
 
@@ -420,7 +425,7 @@ elif menu == "💰 Gold Loan Disbursement":
             """, unsafe_allow_html=True)
             
             st.markdown("### Loan Details")
-            principal = st.number_input("Principal Amount (₹) *", min_value=1000.0, step=500.0, format="%.2f", value=10000.0)
+            principal = st.number_input("Principal Amount (₹) *", min_value=1000.0, step=500.0, format="%.2f", value=100000.0)
             interest_rate = st.number_input("Interest Rate (% per annum) *", min_value=0.0, max_value=36.0, step=0.5, format="%.1f", value=12.0)
             duration_months = st.number_input("Duration (Months) *", min_value=1, max_value=60, step=1, value=12)
             
@@ -440,26 +445,49 @@ elif menu == "💰 Gold Loan Disbursement":
             net_disbursement = principal - total_fees
             
             if principal > 0 and duration_months > 0:
-                emi = calculate_emi(principal, interest_rate, duration_months)
-                total_interest = calculate_total_interest(principal, emi, duration_months)
-                total_payment = calculate_total_payment(emi, duration_months)
+                # Calculate using Simple Interest method
+                result = calculate_simple_interest_emi(principal, interest_rate, duration_months)
+                emi = result['emi']
+                total_interest = result['total_interest']
+                total_amount = result['total_amount']
                 
                 # Generate EMI Schedule Preview
-                emi_schedule = generate_emi_schedule(principal, interest_rate, duration_months, emi_start_date)
+                emi_schedule = generate_emi_schedule_simple(principal, interest_rate, duration_months, emi_start_date)
                 
                 st.markdown("### Loan Summary")
                 st.markdown(f"""
                 <div class="info-box">
-                    <strong>Calculations:</strong><br>
-                    EMI: ₹{emi:,.2f}<br>
-                    Total Interest: ₹{total_interest:,.2f}<br>
-                    Total Payment: ₹{total_payment:,.2f}<br>
+                    <strong>Calculations (Simple Interest):</strong><br>
+                    Principal: ₹{principal:,.2f}<br>
+                    Interest Rate: {interest_rate}% p.a.<br>
+                    Tenure: {duration_months} months ({duration_months/12:.1f} years)<br>
+                    <strong>Total Interest: ₹{total_interest:,.2f}</strong><br>
+                    <strong>Total Amount Due: ₹{total_amount:,.2f}</strong><br>
+                    <strong>EMI: ₹{emi:,.2f}</strong><br>
                     Total Fees: ₹{total_fees:,.2f}<br>
                     <strong>Net Disbursement: ₹{net_disbursement:,.2f}</strong><br>
-                    <strong>EMI Start Date: {emi_start_date.strftime('%d-%m-%Y')}</strong><br>
-                    <strong>EMI End Date: {emi_end_date.strftime('%d-%m-%Y')}</strong>
+                    EMI Start Date: {emi_start_date.strftime('%d-%m-%Y')}<br>
+                    EMI End Date: {emi_end_date.strftime('%d-%m-%Y')}
                 </div>
                 """, unsafe_allow_html=True)
+                
+                # Show calculation breakdown
+                with st.expander("📊 View Calculation Breakdown"):
+                    st.markdown(f"""
+                    **Simple Interest Calculation:**
+                    
+                    Total Interest = Principal × Rate × Time
+                    = ₹{principal:,.2f} × {interest_rate}% × {duration_months/12:.1f} years
+                    = ₹{total_interest:,.2f}
+                    
+                    Total Amount Due = Principal + Total Interest
+                    = ₹{principal:,.2f} + ₹{total_interest:,.2f}
+                    = ₹{total_amount:,.2f}
+                    
+                    EMI = Total Amount Due / Number of Months
+                    = ₹{total_amount:,.2f} / {duration_months}
+                    = ₹{emi:,.2f}
+                    """)
             else:
                 st.info("Enter principal and duration to calculate EMI.")
             
@@ -470,6 +498,8 @@ elif menu == "💰 Gold Loan Disbursement":
                     st.error("⚠️ Total fees cannot exceed principal amount.")
                 else:
                     loan_id = generate_loan_id()
+                    result = calculate_simple_interest_emi(principal, interest_rate, duration_months)
+                    
                     loan_data = {
                         'loan_id': loan_id,
                         'party_id': party_id,
@@ -477,9 +507,9 @@ elif menu == "💰 Gold Loan Disbursement":
                         'principal': principal,
                         'interest_rate': interest_rate,
                         'duration_months': duration_months,
-                        'emi': emi,
-                        'total_interest': total_interest,
-                        'total_payment': total_payment,
+                        'emi': result['emi'],
+                        'total_interest': result['total_interest'],
+                        'total_amount': result['total_amount'],
                         'processing_fee': processing_fee,
                         'admin_fee': admin_fee,
                         'documentation_fee': documentation_fee,
@@ -489,10 +519,10 @@ elif menu == "💰 Gold Loan Disbursement":
                         'emi_start_date': emi_start_date.strftime("%Y-%m-%d"),
                         'emi_end_date': emi_end_date.strftime("%Y-%m-%d"),
                         'status': 'Active',
-                        'outstanding_balance': total_payment,
+                        'outstanding_balance': result['total_amount'],
                         'paid_amount': 0,
                         'remaining_tenure': duration_months,
-                        'emi_schedule': emi_schedule
+                        'emi_schedule': generate_emi_schedule_simple(principal, interest_rate, duration_months, emi_start_date)
                     }
                     st.session_state.loans[loan_id] = loan_data
                     
@@ -529,9 +559,11 @@ elif menu == "📅 EMI Schedule":
             <strong>Loan Details:</strong><br>
             Party: {loan_data['party_name']}<br>
             Principal: ₹{loan_data['principal']:,.2f}<br>
-            Interest Rate: {loan_data['interest_rate']}%<br>
+            Interest Rate: {loan_data['interest_rate']}% p.a.<br>
             Tenure: {loan_data['duration_months']} months<br>
-            EMI: ₹{loan_data['emi']:,.2f}<br>
+            <strong>Total Interest: ₹{loan_data['total_interest']:,.2f}</strong><br>
+            <strong>Total Amount Due: ₹{loan_data['total_amount']:,.2f}</strong><br>
+            <strong>EMI: ₹{loan_data['emi']:,.2f}</strong><br>
             EMI Start Date: {datetime.strptime(loan_data['emi_start_date'], '%Y-%m-%d').strftime('%d-%m-%Y')}<br>
             EMI End Date: {datetime.strptime(loan_data['emi_end_date'], '%Y-%m-%d').strftime('%d-%m-%Y')}
         </div>
@@ -562,7 +594,9 @@ elif menu == "📅 EMI Schedule":
                     <p><strong>Loan ID:</strong> {loan_data['loan_id']}</p>
                     <p><strong>Party:</strong> {loan_data['party_name']}</p>
                     <p><strong>Principal:</strong> ₹{loan_data['principal']:,.2f}</p>
-                    <p><strong>Interest Rate:</strong> {loan_data['interest_rate']}%</p>
+                    <p><strong>Interest Rate:</strong> {loan_data['interest_rate']}% p.a.</p>
+                    <p><strong>Total Interest:</strong> ₹{loan_data['total_interest']:,.2f}</p>
+                    <p><strong>Total Amount Due:</strong> ₹{loan_data['total_amount']:,.2f}</p>
                     <p><strong>EMI:</strong> ₹{loan_data['emi']:,.2f}</p>
                     <hr>
                     {df_schedule.to_html(index=False)}
@@ -815,10 +849,14 @@ elif menu == "📄 Loan Agreement":
                         <table style="width: 100%; border-collapse: collapse; margin: 1rem 0;">
                             <tr><td style="padding: 8px; border: 1px solid #ddd;"><strong>തുക (Principal):</strong></td>
                                 <td style="padding: 8px; border: 1px solid #ddd;">₹{loan_data['principal']:,.2f}</td></tr>
-                            <tr><td style="padding: 8px; border: 1px solid #ddd;"><strong>പലിശ നിരക്ക് (Interest):</strong></td>
+                            <tr><td style="padding: 8px; border: 1px solid #ddd;"><strong>പലിശ നിരക്ക് (Interest Rate):</strong></td>
                                 <td style="padding: 8px; border: 1px solid #ddd;">{loan_data['interest_rate']}% പ്രതിവർഷം</td></tr>
                             <tr><td style="padding: 8px; border: 1px solid #ddd;"><strong>കാലാവധി (Tenure):</strong></td>
                                 <td style="padding: 8px; border: 1px solid #ddd;">{loan_data['duration_months']} മാസം</td></tr>
+                            <tr><td style="padding: 8px; border: 1px solid #ddd;"><strong>മൊത്തം പലിശ (Total Interest):</strong></td>
+                                <td style="padding: 8px; border: 1px solid #ddd;">₹{loan_data['total_interest']:,.2f}</td></tr>
+                            <tr><td style="padding: 8px; border: 1px solid #ddd;"><strong>മൊത്തം തുക (Total Amount Due):</strong></td>
+                                <td style="padding: 8px; border: 1px solid #ddd;">₹{loan_data['total_amount']:,.2f}</td></tr>
                             <tr><td style="padding: 8px; border: 1px solid #ddd;"><strong>പ്രതിമാസ തവണ (EMI):</strong></td>
                                 <td style="padding: 8px; border: 1px solid #ddd;">₹{loan_data['emi']:,.2f}</td></tr>
                             <tr><td style="padding: 8px; border: 1px solid #ddd;"><strong>EMI ആരംഭ തീയതി:</strong></td>

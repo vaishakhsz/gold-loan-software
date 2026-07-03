@@ -1,4 +1,3 @@
-### 🐍 പൂർണ്ണമായും പുതുക്കിയ `app.py` (Final Production Code with Fee Receipt)
 import streamlit as st
 import pandas as pd
 import sqlite3
@@ -97,7 +96,7 @@ st.markdown("""
     .agreement-table th { background-color: #f5f0db; color: #b8860b; }
     .stMetric { background-color: #f8f9fa; padding: 15px; border-radius: 5px; border: 1px solid #eee; }
     
-    /* Printable Invoice Styles */
+    /* Printable Invoice & Ledger Styles */
     .printable-ledger { font-family: Arial, sans-serif; padding: 25px; border: 1px solid #ccc; background-color: white; color: black; border-radius: 5px; }
     .printable-table { width: 100%; border-collapse: collapse; margin-top: 10px; }
     .printable-table th, .printable-table td { border: 1px solid #000; padding: 8px; text-align: left; }
@@ -114,7 +113,7 @@ count_gold = conn.execute("SELECT COUNT(*) FROM loans WHERE status='Active'").fe
 count_tx = conn.execute("SELECT COUNT(*) FROM ledger").fetchone()[0]
 conn.close()
 
-# Helper function to generate standardized agreement HTML string
+# Helper function to generate standardized agreement HTML string (Fees & Net Disbursed Hidden)
 def generate_agreement_html(loan_row, party_row):
     image_html_tag = ""
     if loan_row['gold_image_base64']:
@@ -176,6 +175,7 @@ def generate_agreement_html(loan_row, party_row):
     </div>
     """
 
+# Helper function to generate Add-on Charges Fee Receipt
 def generate_fee_receipt_html(loan_row, party_row):
     total_fees = loan_row['processing_fee'] + loan_row['admin_fee'] + loan_row['documentation_fee']
     return f"""
@@ -210,7 +210,7 @@ def generate_fee_receipt_html(loan_row, party_row):
     """
 
 # ==========================================
-# 3. SIDEBAR NAVIGATION
+# 3. SIDEBAR NAVIGATION MANAGEMENT
 # ==========================================
 st.sidebar.markdown("### 📋 Navigation")
 main_menu = [
@@ -256,14 +256,14 @@ if choice == "🏠 Dashboard":
     
     col1, col2, col3 = st.columns(3)
     col1.metric("Active Loan Accounts", total_active_loans)
-    col2.metric("Total Disbursement (Principal Sum)", f"₹{total_disbursed:,.2f}")
+    col2.metric("Total Disbursement (Principal Amount)", f"₹{total_disbursed:,.2f}")
     col3.metric("Total Gold Vaulted (Net)", f"{total_gold_wt:.2f} g")
     
     st.subheader("📈 Live Master Monitoring Stream")
     df_dashboard = pd.read_sql_query("""
-        SELECT l.id as 'Loan ID', p.name as 'Customer Name', l.principal as 'Principal/Disbursement (₹)', 
-               l.processing_fee as 'Processing (₹)', l.admin_fee as 'Admin (₹)', l.documentation_fee as 'Doc (₹)',
-               l.interest_amount as 'Interest Amount (₹)', l.total_payable as 'Total Payable (₹)', l.emi as 'Monthly EMI (₹)', l.status as 'Status'
+        SELECT l.id as 'Loan ID', p.name as 'Customer Name', l.principal as 'Principal/Disbursement Amount (₹)', 
+               l.interest_amount as 'Interest Amount (₹)', l.total_payable as 'Total Payable (₹)', 
+               l.emi as 'Monthly EMI (₹)', l.status as 'Status'
         FROM loans l JOIN parties p ON l.party_id = p.id
     """, conn)
     st.dataframe(df_dashboard, use_container_width=True)
@@ -285,7 +285,7 @@ elif choice == "👤 Party Master":
         with col2:
             occupation = st.text_input("തൊഴിൽ (Occupation)")
             qualification = st.text_input("യോഗ്യത (Qualification)")
-            address = st.text_area("വിലാസം (Address)")
+            address = st.text_area("වിലാസം (Address)")
             pincode = st.text_input("Pincode")
             pan = st.text_input("PAN Card Number")
             kyc_status = st.selectbox("KYC Status", ["Pending", "Verified", "Suspended"])
@@ -328,7 +328,7 @@ elif choice == "✏️ Edit Party Details":
             with col2:
                 edit_occupation = st.text_input("തൊഴിൽ (Occupation)", value=selected_row['occupation'])
                 edit_qualification = st.text_input("യോഗ്യത (Qualification)", value=selected_row['qualification'])
-                edit_address = st.text_area("വിലാസം (Address)", value=selected_row['address'])
+                edit_address = st.text_area("වിലാസം (Address)", value=selected_row['address'])
                 edit_pincode = st.text_input("Pincode", value=selected_row['pincode'])
                 edit_kyc = st.selectbox("KYC Status", ["Pending", "Verified", "Suspended"], index=["Pending", "Verified", "Suspended"].index(selected_row['kyc_status']))
             
@@ -350,9 +350,9 @@ elif choice == "✏️ Edit Party Details":
 elif choice == "💰 Gold Loan Management":
     conn = get_db_connection()
     
-    # 💸 SUB-MODULE 1: LOAN DISBURSEMENT WITH RECIPIENT SYSTEM
+    # 💸 SUB-MODULE 1: LOAN DISBURSEMENT MODULE
     if sub_choice == "💸 Loan Disbursement":
-        st.header("💸 Gold Loan Formulation & Fee Receipt Generator")
+        st.header("💸 Gold Loan Formulation (Disbursement = Principal)")
         parties = conn.execute("SELECT id, name FROM parties WHERE kyc_status='Verified'").fetchall()
         
         if not parties:
@@ -385,35 +385,35 @@ elif choice == "💰 Gold Loan Management":
                         gold_photo_data = st.camera_input("ലൈവ് ഫോട്ടോ എടുക്കുക")
                     
                 with col2:
-                    st.markdown("#### 📊 Calculation Terms (Disbursement = Principal)")
+                    st.markdown("#### 📊 Calculation Terms (Disbursement = Principal Amount)")
                     max_eligible = appraised_val * 0.75
                     st.info(f"Regulatory 75% LTV Cap Limit: **₹{max_eligible:,.2f}**")
                     
-                    # 🛠️ DISBURSEMENT IS REGISTERED DIRECTLY AS PRINCIPAL AMOUNT Vector
+                    # Disbursement Amount is recorded directly as the core Principal field
                     principal = st.number_input("അനുവദിച്ച വായ്പ / Disbursement Amount (Principal) - ₹", min_value=0.0, value=40375.0)
                     interest_rate = st.number_input("പലിശ നിരക്ക് (Interest Rate % For Total Duration)", min_value=0.0, value=12.0)
                     duration = st.number_input("കാലാവധി (Tenure Duration - Months)", min_value=1, max_value=36, value=12)
                     
                     st.markdown("---")
-                    st.markdown("#### 🏷️ ആഡ്ഓൺ ചാർജ്ജുകൾ (Service Fee Components)")
+                    st.markdown("#### 🏷️ ആഡ്ഓൺ ചാർജ്ജുകൾ (Service Fees)")
                     processing_fee = st.number_input("പ്രോസസ്സിംഗ് ഫീസ് (Processing Fee - ₹)", min_value=0.0, value=500.0)
                     admin_fee = st.number_input("അഡ്മിൻ ഫീസ് (Admin Fee - ₹)", min_value=0.0, value=200.0)
                     doc_fee = st.number_input("ഡോക്യുമെന്റേഷൻ ഫീസ് (Documentation Fee - ₹)", min_value=0.0, value=200.0)
                     
-                    # CORE CALCULATION ASSIGNMENT:
+                    # SYNCED FORMULA LOGIC:
                     interest_amount = principal * (interest_rate / 100)
                     total_payable = principal + interest_amount
                     calculated_emi = total_payable / duration if duration > 0 else 0.0
                     
                     st.markdown("---")
-                    st.write(f"**അസ്സൽ തുക / നൽകിയ തുക (Disbursement Amount):** ₹{principal:,.2f}")
+                    st.write(f"**അസ്സൽ വായ്പ തുക (Disbursement Amount):** ₹{principal:,.2f}")
                     st.write(f"**പലിശ തുക (Interest Charged):** ₹{interest_amount:,.2f}")
                     st.write(f"**ആകെ അടയ്ക്കാനുള്ളത് (Total Payable):** ₹{total_payable:,.2f}")
                     st.write(f"**പ്രതിമാസ തവണ (EMI):** ₹{calculated_emi:,.2f}")
                     
                 if st.form_submit_button("Finalize and Disburse Capital Allocation"):
                     if principal > max_eligible:
-                        st.error("Requested capital allocation violates the 75% LTV limit.")
+                        st.error("Requested capital allocation exceeds the 75% LTV limit.")
                     elif principal <= 0 or net_wt <= 0:
                         st.error("Invalid entry constraints.")
                     else:
@@ -456,7 +456,6 @@ elif choice == "💰 Gold Loan Management":
                     st.markdown(instant_html, unsafe_allow_html=True)
                     st.download_button(label="📥 ഡൗൺലോഡ് കരാർ പത്രം (Download Agreement)", data=instant_html, file_name=f"Agreement_Loan_{l_id}.html", mime="text/html")
                 
-                # 🖨️ SEPARATE CHARGES FEE RECEIPT TAB
                 with tab_fee_receipt:
                     fee_html = generate_fee_receipt_html(loan_row, party_row)
                     st.markdown(fee_html, unsafe_allow_html=True)
@@ -468,7 +467,7 @@ elif choice == "💰 Gold Loan Management":
         active_loans = conn.execute("SELECT l.id, p.name, l.principal FROM loans l JOIN parties p ON l.party_id = p.id WHERE l.status='Active'").fetchall()
         
         if not active_loans:
-            st.info("No active profiles open currently.")
+            st.info("No active loan records open currently.")
         else:
             loan_options = {al['id']: f"Loan #{al['id']} - Holder: {al['name']} (₹{al['principal']})" for al in active_loans}
             selected_loan = st.selectbox("Select Target Portfolio File", list(loan_options.keys()), format_func=lambda x: loan_options[x])
@@ -485,7 +484,7 @@ elif choice == "💰 Gold Loan Management":
                         if repay_amt > 0:
                             conn.execute("INSERT INTO ledger (loan_id, transaction_type, amount, transaction_date) VALUES (?, ?, ?, ?)", (selected_loan, type_tx, repay_amt, str(repay_date)))
                             conn.commit()
-                            st.success("Entry saved.")
+                            st.success("Repayment entry saved inside ledger.")
                             st.rerun()
                             
             with tab_view:
@@ -496,9 +495,9 @@ elif choice == "💰 Gold Loan Management":
                 live_outstanding_balance = total_liability - total_repaid_credits
                 
                 col_m1, col_m2, col_m3 = st.columns(3)
-                col_m1.metric("Disbursed/Principal Amount", f"₹{loan_row_data['principal']:,.2f}")
+                col_m1.metric("Disbursement / Principal Amount", f"₹{loan_row_data['principal']:,.2f}")
                 col_m2.metric("Total Payable (with Interest)", f"₹{total_liability:,.2f}")
-                col_m3.metric("Current Outstanding", f"₹{live_outstanding_balance:,.2f}", delta_color="inverse")
+                col_m3.metric("Current Outstanding Balance", f"₹{live_outstanding_balance:,.2f}", delta_color="inverse")
                 
                 tx_history_df = pd.read_sql_query(f"SELECT transaction_type as 'Activity Type', amount as 'Value (₹)', transaction_date as 'Date' FROM ledger WHERE loan_id={selected_loan} ORDER BY ROWID ASC", conn)
                 st.table(tx_history_df)
@@ -510,7 +509,6 @@ elif choice == "💰 Gold Loan Management":
                 
                 table_html_rows = ""
                 for tx in tx_rows:
-                    # Disbursement എന്ന എൻട്രി ലെഡ്ജർ ടേബിളിൽ വരുമ്പോൾ അത് 'Loan Disbursement (Principal)' എന്ന് കാണിക്കും
                     display_type = "Loan Disbursement (Principal)" if tx['transaction_type'] == "Disbursement" else tx['transaction_type']
                     table_html_rows += f"<tr><td>{tx['transaction_date']}</td><td>{display_type}</td><td>₹{tx['amount']:,.2f}</td></tr>"
                 
@@ -550,6 +548,8 @@ elif choice == "💰 Gold Loan Management":
                 """
                 st.markdown(printable_html, unsafe_allow_html=True)
                 st.download_button(label="📥 ഡൗൺലോഡ് ലെഡ്ജർ (Download HTML Ledger)", data=printable_html, file_name=f"Ledger_Loan_{selected_loan}.html", mime="text/html")
+    conn.close()
+
 # ==========================================
 # MODULE: GOLD PLEDGE MANAGEMENT
 # ==========================================
@@ -559,7 +559,7 @@ elif choice == "💍 Gold Pledge Management":
     loans_cursor = conn.execute("SELECT l.*, p.name as pledger_name FROM loans l JOIN parties p ON l.party_id = p.id WHERE l.status='Active'").fetchall()
     
     if not loans_cursor:
-        st.info("No vaulted items.")
+        st.info("No vaulted items found inside database logs.")
     else:
         for row in loans_cursor:
             with st.container():
@@ -578,7 +578,7 @@ elif choice == "💍 Gold Pledge Management":
     conn.close()
 
 # ==========================================
-# MODULE: LOAN AGREEMENT MALAYALAM (DEDICATED SEARCH)
+# MODULE: LOAN AGREEMENT MALAYALAM
 # ==========================================
 elif choice == "📄 Loan Agreement (Malayalam)":
     st.header("📄 Malayalam Legal Agreement Console")
@@ -586,7 +586,7 @@ elif choice == "📄 Loan Agreement (Malayalam)":
     available_contracts = conn.execute("SELECT l.id, p.name FROM loans l JOIN parties p ON l.party_id=p.id").fetchall()
     
     if not available_contracts:
-        st.info("No records to fetch sheets for.")
+        st.info("No loan files to fetch sheets for.")
     else:
         contract_options = {ac['id']: f"Loan #{ac['id']} Ledger Account - {ac['name']}" for ac in available_contracts}
         target_contract = st.selectbox("Select Target Active Portfolio File", list(contract_options.keys()), format_func=lambda x: contract_options[x])
@@ -707,6 +707,7 @@ elif choice == "💾 Backup & Restore":
         mime="application/octet-stream"
     )
     conn.close()
+
 
 
 

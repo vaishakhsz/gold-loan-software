@@ -510,7 +510,9 @@ elif choice == "💰 Gold Loan Management":
                 
                 table_html_rows = ""
                 for tx in tx_rows:
-                    table_html_rows += f"<tr><td>{tx['transaction_date']}</td><td>{tx['transaction_type']}</td><td>₹{tx['amount']:,.2f}</td></tr>"
+                    # Disbursement എന്ന എൻട്രി ലെഡ്ജർ ടേബിളിൽ വരുമ്പോൾ അത് 'Loan Disbursement (Principal)' എന്ന് കാണിക്കും
+                    display_type = "Loan Disbursement (Principal)" if tx['transaction_type'] == "Disbursement" else tx['transaction_type']
+                    table_html_rows += f"<tr><td>{tx['transaction_date']}</td><td>{display_type}</td><td>₹{tx['amount']:,.2f}</td></tr>"
                 
                 total_repaid = sum([t['amount'] for t in tx_rows if t['transaction_type'] in ['Repayment', 'Interest Settlement']])
                 balance_left = p_loan['total_payable'] - total_repaid
@@ -531,24 +533,23 @@ elif choice == "💰 Gold Loan Management":
                             <tr><th>തീയതി (Date)</th><th>വിവരണം (Description)</th><th>തുക (Amount)</th></tr>
                         </thead>
                         <tbody>
-                            <tr><td>{p_loan['disbursed_date']}</td><td>Loan Disbursement (Principal)</td><td>₹{p_loan['principal']:,.2f}</td></tr>
                             <tr><td>{p_loan['disbursed_date']}</td><td>Fixed Term Interest Charged</td><td>₹{p_loan['interest_amount']:,.2f}</td></tr>
                             {table_html_rows}
                         </tbody>
                     </table>
                     
                     <div style="margin-top:20px; text-align:right; font-size:16px;">
-                        <p><b>അസ്സൽ തുക (Disbursement Principal):</b> ₹{p_loan['principal']:,.2f}</p>
+                        <p><b>അസ്സൽ തുക (Principal/Disbursed Amount):</b> ₹{p_loan['principal']:,.2f}</p>
+                        <p><b>ആകെ പലിശ (Total Interest Charged):</b> ₹{p_loan['interest_amount']:,.2f}</p>
+                        <hr style="border-top: 1px solid #000; width: 40%; margin-left: auto;">
                         <p><b>ആകെ അടയ്ക്കേണ്ടത് (Total Payable):</b> ₹{p_loan['total_payable']:,.2f}</p>
-                        <p><b>ഇതുവരെ അടച്ചത് (Total Repaid):</b> ₹{total_repaid:,.2f}</p>
-                        <p style="color:red; font-size:18px;"><b>ബാക്കി കുടിശ്ശിക (Outstanding Balance):</b> ₹{balance_left:,.2f}</p>
+                        <p style="color:green;"><b>ഇതുവരെ അടച്ചത് (Total Repaid):</b> ₹{total_repaid:,.2f}</p>
+                        <p style="color:red; font-size:18px;"><b>ബാക്കി കുടിശ്ശിക (Outstanding Balance):</b> <b>₹{balance_left:,.2f}</b></p>
                     </div>
                 </div>
                 """
                 st.markdown(printable_html, unsafe_allow_html=True)
                 st.download_button(label="📥 ഡൗൺലോഡ് ലെഡ്ജർ (Download HTML Ledger)", data=printable_html, file_name=f"Ledger_Loan_{selected_loan}.html", mime="text/html")
-    conn.close()
-
 # ==========================================
 # MODULE: GOLD PLEDGE MANAGEMENT
 # ==========================================

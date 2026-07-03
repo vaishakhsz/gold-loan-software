@@ -150,10 +150,6 @@ def generate_agreement_html(loan_row, party_row):
             <tr><td>പ്രതിവർഷ പലിശ നിരക്ക് (Interest Rate)</td><td>{loan_row['interest_rate']}%</td></tr>
             <tr><td>കാലാവധി (Tenure)</td><td>{loan_row['duration_months']} മാസങ്ങൾ</td></tr>
             <tr><td>പ്രതിമാസ തവണ (EMI)</td><td><b>₹{loan_row['emi']:,.2f}</b></td></tr>
-            <tr><td>പ്രോസസ്സിംഗ് ഫീസ് (Processing Fee)</td><td>₹{loan_row['processing_fee']:,.2f}</td></tr>
-            <tr><td>അഡ്മിൻ ഫീസ് (Admin Fee)</td><td>₹{loan_row['admin_fee']:,.2f}</td></tr>
-            <tr><td>ഡോക്യുമെന്റേഷൻ ഫീസ് (Documentation Fee)</td><td>₹{loan_row['documentation_fee']:,.2f}</td></tr>
-            <tr style="font-weight:bold; background-color: #e6f7ff;"><td>കൈപ്പറ്റിയ തുക (Net Disbursed Amount)</td><td>₹{loan_row['net_disbursed']:,.2f}</td></tr>
             <tr style="font-weight:bold; background-color: #fff0f6;"><td>ആകെ പലിശ തുക (Interest Amount)</td><td>₹{loan_row['interest_amount']:,.2f}</td></tr>
             <tr style="font-weight:bold; background-color: #f6ffed;"><td>ആകെ തിരിച്ചടയ്ക്കാനുള്ളത് (Total Payable)</td><td>₹{loan_row['total_payable']:,.2f}</td></tr>
         </table>

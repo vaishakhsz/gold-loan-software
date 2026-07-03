@@ -241,7 +241,7 @@ if choice == "🏠 Dashboard":
     conn.close()
 
 # ==========================================
-# MODULE: PARTY MASTER
+# MODULE: PARTY MASTER (WITH CORRECT DOB RANGE)
 # ==========================================
 elif choice == "👤 Party Master":
     st.header("👤 Customer Registration (Party Master)")
@@ -250,7 +250,14 @@ elif choice == "👤 Party Master":
         with col1:
             name = st.text_input("പേര് (Name) *")
             guardian_name = st.text_input("പിതാവ്/ഭർത്താവിന്റെ പേര് (Father/Husband Name)")
-            dob = st.date_input("Date of Birth")
+            
+            # 🛠️ DOB Range Corrected from 1900 to Present Day
+            dob = st.date_input(
+                "Date of Birth",
+                min_value=datetime(1900, 1, 1),
+                max_value=datetime.now()
+            )
+            
             mobile = st.text_input("മൊബൈൽ നമ്പർ (Mobile) *")
             whatsapp = st.text_input("WhatsApp Number")
         with col2:
@@ -321,9 +328,9 @@ elif choice == "✏️ Edit Party Details":
 elif choice == "💰 Gold Loan Management":
     conn = get_db_connection()
     
-    # 💸 SUB-MODULE 1: LOAN DISBURSEMENT & INSTANT AGREEMENT FORM WITH PHOTO
+    # 💸 SUB-MODULE 1: LOAN DISBURSEMENT WITH SIMPLE FLAT INTEREST FORMULA
     if sub_choice == "💸 Loan Disbursement":
-        st.header("💸 Gold Loan Formulation & Disbursement Engine")
+        st.header("💸 Gold Loan Formulation & Simple Interest Engine")
         parties = conn.execute("SELECT id, name FROM parties WHERE kyc_status='Verified'").fetchall()
         
         if not parties:
@@ -345,9 +352,8 @@ elif choice == "💰 Gold Loan Management":
                     appraised_val = st.number_input("മൂല്യം (Gold Appraisal Value - ₹)", min_value=0.0)
                     vault_id = st.text_input("Locker / Vault Storage ID Code")
                     
-                    # 📸 Attach Photo Form Fields
                     st.markdown("---")
-                    st.markdown("📷 **സ്വർണ്ണത്തിന്റെ ഫോട്ടോ ചേർക്കുക (Attach Gold Photo)**")
+                    st.markdown("📷 **Attach Gold Photo**")
                     photo_source = st.radio("ഫോട്ടോ എടുക്കേണ്ട രീതി", ["Upload File", "Use Device Camera"], horizontal=True)
                     
                     gold_photo_data = None
@@ -357,22 +363,24 @@ elif choice == "💰 Gold Loan Management":
                         gold_photo_data = st.camera_input("ലൈവ് ഫോട്ടോ എടുക്കുക")
                     
                 with col2:
-                    st.markdown("#### 📊 Flat Mathematical Terms Configuration")
+                    st.markdown("#### 📊 Simple Interest Calculations (Principal x Interest = Total / Months)")
                     max_eligible = appraised_val * 0.75
                     st.info(f"Regulatory 75% LTV Cap Limit: **₹{max_eligible:,.2f}**")
                     
                     principal = st.number_input("തുക (Principal Loan Amount - ₹)", min_value=0.0, value=40375.0)
-                    interest_rate = st.number_input("പലിശ നിരക്ക് (Interest Rate % Per Annum)", min_value=0.0, value=12.0)
+                    interest_rate = st.number_input("പലിശ നിരക്ക് (Interest Rate % For Total Duration)", min_value=0.0, value=12.0)
                     duration = st.number_input("കാലാവധി (Tenure Duration - Months)", min_value=1, max_value=36, value=12)
                     
                     processing_fee = st.number_input("പ്രോസസ്സിംഗ് ഫീസ് (Processing Fee - ₹)", min_value=0.0, value=500.0)
                     admin_fee = st.number_input("അഡ്മിൻ ഫീസ് (Admin Fee - ₹)", min_value=0.0, value=200.0)
                     doc_fee = st.number_input("ഡോക്യുമെന്റേഷൻ ഫീസ് (Documentation Fee - ₹)", min_value=0.0, value=200.0)
                     
+                    # 🛠️ UPDATED PATTERN LOGIC: Principal x Interest Rate = Total Interest Amount
                     total_fees = processing_fee + admin_fee + doc_fee
                     net_disbursed = principal - total_fees
-                    interest_amount = net_disbursed * (interest_rate / 100) * (duration / 12)
-                    total_payable = net_disbursed + interest_amount
+                    
+                    interest_amount = principal * (interest_rate / 100)
+                    total_payable = principal + interest_amount
                     calculated_emi = total_payable / duration if duration > 0 else 0.0
                     
                     st.markdown("---")
@@ -414,26 +422,25 @@ elif choice == "💰 Gold Loan Management":
                         st.session_state['active_contract_loan_id'] = loan_id
                         st.rerun()
 
-            # Display Instant Printable Form directly on creation finish
             if 'active_contract_loan_id' in st.session_state:
                 l_id = st.session_state['active_contract_loan_id']
                 loan_row = conn.execute(f"SELECT * FROM loans WHERE id={l_id}").fetchone()
                 party_row = conn.execute(f"SELECT * FROM parties WHERE id={loan_row['party_id']}").fetchone()
                 
                 st.markdown("---")
-                st.subheader("📄 ഇൻസ്റ്റന്റ് വായ്പാ കരാർ ഫോം (Instant Agreement Form Generated)")
+                st.subheader("📄 ഇൻസ്റ്റന്റ് വായ്പാ കരാർ ഫോം (Instant Agreement)")
                 
                 instant_html = generate_agreement_html(loan_row, party_row)
                 st.markdown(instant_html, unsafe_allow_html=True)
                 
                 st.download_button(
-                    label="📥 ഡൗൺലോഡ് ഇൻസ്റ്റന്റ് ഫോം (Download Agreement HTML Form)",
+                    label="📥 ഡൗൺലോഡ് ഇൻസ്റ്റന്റ് ഫോം (Download HTML Form)",
                     data=instant_html,
                     file_name=f"Instant_Form_Loan_{l_id}.html",
                     mime="text/html"
                 )
 
-    # 📊 SUB-MODULE 2: PARTY LEDGER ACCOUNTANT WITH PRINT OPTION
+    # 📊 SUB-MODULE 2: PARTY LEDGER ACCOUNTANT
     elif sub_choice == "📊 Party Ledger":
         st.header("📊 Customer Ledger Statements")
         active_loans = conn.execute("SELECT l.id, p.name, l.principal FROM loans l JOIN parties p ON l.party_id = p.id WHERE l.status='Active'").fetchall()
@@ -461,8 +468,9 @@ elif choice == "💰 Gold Loan Management":
                             
             with tab_view:
                 loan_row_data = conn.execute(f"SELECT total_payable FROM loans WHERE id={selected_loan}").fetchone()
-                total_liability = loan_row_data['total_payable']
-                total_repaid_credits = conn.execute(f"SELECT SUM(amount) FROM ledger WHERE loan_id={selected_loan} AND transaction_type IN ('Repayment', 'Interest Settlement')").fetchone()[0] or 0.0
+                total_liability = float(loan_row_data['total_payable'] or 0.0)
+                total_repaid_credits = conn.execute(f"SELECT SUM(amount) FROM ledger WHERE loan_id={selected_loan} AND transaction_type IN ('Repayment', 'Interest Settlement')").fetchone()[0]
+                total_repaid_credits = float(total_repaid_credits or 0.0)
                 live_outstanding_balance = total_liability - total_repaid_credits
                 
                 col_m1, col_m2, col_m3 = st.columns(3)
@@ -515,7 +523,7 @@ elif choice == "💰 Gold Loan Management":
                 </div>
                 """
                 st.markdown(printable_html, unsafe_allow_html=True)
-                st.download_button(label="📥 ഡൗൺലോഡ് & പ്രിന്റ് ലെഡ്ജർ (Download HTML Statement)", data=printable_html, file_name=f"Ledger_Loan_{selected_loan}.html", mime="text/html")
+                st.download_button(label="📥 ഡൗൺലോഡ് & പ്രിന്റ് ലെഡ്ജർ (Download HTML)", data=printable_html, file_name=f"Ledger_Loan_{selected_loan}.html", mime="text/html")
     conn.close()
 
 # ==========================================
@@ -546,7 +554,7 @@ elif choice == "💍 Gold Pledge Management":
     conn.close()
 
 # ==========================================
-# MODULE: LOAN AGREEMENT MALAYALAM (DEDICATED VISUAL SHEET)
+# MODULE: LOAN AGREEMENT MALAYALAM
 # ==========================================
 elif choice == "📄 Loan Agreement (Malayalam)":
     st.header("📄 Malayalam Legal Agreement Generation Console")
@@ -562,7 +570,6 @@ elif choice == "📄 Loan Agreement (Malayalam)":
         loan_row = conn.execute(f"SELECT * FROM loans WHERE id={target_contract}").fetchone()
         party_row = conn.execute(f"SELECT * FROM parties WHERE id={loan_row['party_id']}").fetchone()
         
-        # Pull generated HTML with layout matching constraints
         agreement_html = generate_agreement_html(loan_row, party_row)
         st.markdown(agreement_html, unsafe_allow_html=True)
         
@@ -575,32 +582,81 @@ elif choice == "📄 Loan Agreement (Malayalam)":
     conn.close()
 
 # ==========================================
-# MODULE: EMI SCHEDULE MATRIX
+# MODULE: EMI SCHEDULE MATRIX (PRINTABLE TABLE)
 # ==========================================
 elif choice == "📅 EMI Schedule":
     st.header("📅 Monthly Recovery Projection Mapping (EMI Schedule)")
     conn = get_db_connection()
-    active_loans = conn.execute("SELECT id, emi, duration_months, total_payable FROM loans WHERE status='Active'").fetchall()
+    active_loans = conn.execute("SELECT l.id, p.name, l.emi, l.duration_months, l.total_payable FROM loans l JOIN parties p ON l.party_id=p.id WHERE l.status='Active'").fetchall()
     
     if not active_loans:
         st.info("No active loan tracking matrices found.")
     else:
-        loan_options = {al['id']: f"Loan Record Line #{al['id']} (EMI: ₹{al['emi']:,.2f})" for al in active_loans}
+        loan_options = {al['id']: f"Loan #{al['id']} - Account: {al['name']} (EMI: ₹{al['emi']:,.2f})" for al in active_loans}
         selected_sched = st.selectbox("Select Target Loan ID Schedule Map", list(loan_options.keys()), format_func=lambda x: loan_options[x])
         
-        target_l = conn.execute(f"SELECT emi, duration_months, total_payable FROM loans WHERE id={selected_sched}").fetchone()
-        schedule_list = []
+        target_l = conn.execute(f"SELECT l.*, p.name, p.mobile FROM loans l JOIN parties p ON l.party_id=p.id WHERE l.id={selected_sched}").fetchone()
+        
+        # 🛠️ Building HTML rows for schedule list to ensure formatting capability
+        schedule_rows_html = ""
         remaining_reduction_pool = target_l['total_payable']
         
+        schedule_list = []
         for index in range(1, target_l['duration_months'] + 1):
             remaining_reduction_pool -= target_l['emi']
+            current_rem = max(0.0, remaining_reduction_pool)
+            
+            schedule_rows_html += f"""
+            <tr>
+                <td style="border: 1px solid #000; padding: 8px; text-align: center;">Month {index}</td>
+                <td style="border: 1px solid #000; padding: 8px;">₹{target_l['emi']:,.2f}</td>
+                <td style="border: 1px solid #000; padding: 8px;">₹{current_rem:,.2f}</td>
+            </tr>
+            """
             schedule_list.append({
-                "Installment Number": f"Month No. {index}",
-                "Expected Payment Amount (₹)": f"₹{target_l['emi']:,.2f}",
-                "Projected Outstanding Post-Payment (₹)": f"₹{max(0.0, remaining_reduction_pool):,.2f}"
+                "Installment": f"Month No. {index}",
+                "Payment Amount (₹)": f"₹{target_l['emi']:,.2f}",
+                "Outstanding Balance (₹)": f"₹{current_rem:,.2f}"
             })
             
         st.table(pd.DataFrame(schedule_list))
+        
+        # 🖨️ Printable Clean Template View for giving to Party
+        printable_schedule_html = f"""
+        <div class="printable-ledger">
+            <h2 style="text-align:center;margin-bottom:2px;">AURA LOAN MANAGEMENT SYSTEM</h2>
+            <h4 style="text-align:center;margin-top:0px;color:#555;">📊 പ്രതിമാസ തവണ വിവരപ്പട്ടിക (EMI SCHEDULE PLAN)</h4>
+            <hr>
+            <table style="width:100%; margin-bottom:20px; font-size:14px;">
+                <tr><td><b>കസ്റ്റമർ പേര് (Name):</b> {target_l['name']}</td><td><b>ലോൺ നമ്പർ (Loan ID):</b> #{target_l['id']}</td></tr>
+                <tr><td><b>ഫോൺ (Mobile):</b> {target_l['mobile']}</td><td><b>ആകെ തുക (Total Liability):</b> ₹{target_l['total_payable']:,.2f}</td></tr>
+            </table>
+            
+            <table class="printable-table">
+                <thead>
+                    <tr style="background-color: #f2f2f2;">
+                        <th style="border: 1px solid #000; padding: 8px; text-align: center;">തവണ നമ്പർ (Installment)</th>
+                        <th style="border: 1px solid #000; padding: 8px;">അടയ്ക്കേണ്ട തുക (EMI Amount)</th>
+                        <th style="border: 1px solid #000; padding: 8px;">ബാക്കി വരാവുന്ന തുക (Remaining Balance)</th>
+                    </tr>
+                </thead>
+                <tbody>
+                    {schedule_rows_html}
+                </tbody>
+            </table>
+            <br>
+            <p style="font-size:12px; font-style:italic; text-align:center; color:#666;">*Please make payment on or before the due date parameters to prevent standard legal penalties.*</p>
+        </div>
+        """
+        
+        with st.expander("🖨️ പ്രിന്റ് ചെയ്യാവുന്ന EMI ഷെഡ്യൂൾ കാണുക (View Printable Schedule)"):
+            st.markdown(printable_schedule_html, unsafe_allow_html=True)
+            st.download_button(
+                label="📥 ഡൗൺലോഡ് & പ്രിന്റ് ഷെഡ്യൂൾ (Download Schedule Sheet)",
+                data=printable_schedule_html,
+                file_name=f"EMI_Schedule_Loan_{selected_sched}.html",
+                mime="text/html"
+            )
     conn.close()
 
 # ==========================================

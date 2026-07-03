@@ -1,5 +1,4 @@
-
-### 🐍 പൂർണ്ണമായും പുതുക്കിയ `app.py` (Final Sync Version)
+### 🐍 പൂർണ്ണമായും പുതുക്കിയ `app.py` (Final Production Code with Fee Receipt)
 import streamlit as st
 import pandas as pd
 import sqlite3
@@ -98,11 +97,12 @@ st.markdown("""
     .agreement-table th { background-color: #f5f0db; color: #b8860b; }
     .stMetric { background-color: #f8f9fa; padding: 15px; border-radius: 5px; border: 1px solid #eee; }
     
-    /* Printable Ledger Styles */
-    .printable-ledger { font-family: Arial, sans-serif; padding: 20px; border: 1px solid #ccc; background-color: white; color: black; }
+    /* Printable Invoice Styles */
+    .printable-ledger { font-family: Arial, sans-serif; padding: 25px; border: 1px solid #ccc; background-color: white; color: black; border-radius: 5px; }
     .printable-table { width: 100%; border-collapse: collapse; margin-top: 10px; }
     .printable-table th, .printable-table td { border: 1px solid #000; padding: 8px; text-align: left; }
     .printable-table th { background-color: #f2f2f2; }
+    .receipt-box { border: 2px dashed #333; padding: 20px; margin-top: 15px; background-color: #fff; }
     </style>
 """, unsafe_allow_html=True)
 
@@ -121,7 +121,7 @@ def generate_agreement_html(loan_row, party_row):
         image_html_tag = f"""
         <div style="margin-top:20px; margin-bottom:20px; text-align:center;">
             <p><b>പണയം വെച്ച ആഭരണത്തിന്റെ ഫോട്ടോ (Pledged Asset Photo):</b></p>
-            <img src="data:image/jpeg;base64,{loan_row['gold_image_base64']}" style="max-width:320px; max-height:240px; border:3px solid #b8860b; border-radius:8px; box-shadow: 2px 2px 5px rgba(0,0,0,0.1);"/>
+            <img src="data:image/jpeg;base64,{loan_row['gold_image_base64']}" style="max-width:320px; max-height:240px; border:3px solid #b8860b; border-radius:8px;"/>
         </div>
         """
     else:
@@ -146,14 +146,14 @@ def generate_agreement_html(loan_row, party_row):
         <h3>💰 2. വായ്പയുടെ വിവരങ്ങൾ (Loan Details)</h3>
         <table class="agreement-table">
             <tr><th>വിവരണം (Description)</th><th>തുക / നിരക്ക് (Amount / Rate)</th></tr>
-            <tr><td>തുക (Principal)</td><td>₹{loan_row['principal']:,.2f}</td></tr>
+            <tr><td>അനുവദിച്ച വായ്പ തുക (Principal / Disbursement)</td><td><b>₹{loan_row['principal']:,.2f}</b></td></tr>
             <tr><td>പ്രതിവർഷ പലിശ നിരക്ക് (Interest Rate)</td><td>{loan_row['interest_rate']}%</td></tr>
             <tr><td>കാലാവധി (Tenure)</td><td>{loan_row['duration_months']} മാസങ്ങൾ</td></tr>
             <tr><td>പ്രതിമാസ തവണ (EMI)</td><td><b>₹{loan_row['emi']:,.2f}</b></td></tr>
             <tr><td>പ്രോസസ്സിംഗ് ഫീസ് (Processing Fee)</td><td>₹{loan_row['processing_fee']:,.2f}</td></tr>
             <tr><td>അഡ്മിൻ ഫീസ് (Admin Fee)</td><td>₹{loan_row['admin_fee']:,.2f}</td></tr>
             <tr><td>ഡോക്യുമെന്റേഷൻ ഫീസ് (Documentation Fee)</td><td>₹{loan_row['documentation_fee']:,.2f}</td></tr>
-            <tr style="font-weight:bold; background-color: #e6f7ff;"><td>നൽകിയ തുക (Net Disbursed Amount)</td><td>₹{loan_row['net_disbursed']:,.2f}</td></tr>
+            <tr style="font-weight:bold; background-color: #e6f7ff;"><td>കൈപ്പറ്റിയ തുക (Net Disbursed Amount)</td><td>₹{loan_row['net_disbursed']:,.2f}</td></tr>
             <tr style="font-weight:bold; background-color: #fff0f6;"><td>ആകെ പലിശ തുക (Interest Amount)</td><td>₹{loan_row['interest_amount']:,.2f}</td></tr>
             <tr style="font-weight:bold; background-color: #f6ffed;"><td>ആകെ തിരിച്ചടയ്ക്കാനുള്ളത് (Total Payable)</td><td>₹{loan_row['total_payable']:,.2f}</td></tr>
         </table>
@@ -169,18 +169,46 @@ def generate_agreement_html(loan_row, party_row):
         </ul>
         
         {image_html_tag}
-
-        <h3>📝 4. നിബന്ധനകളും വ്യവസ്ഥകളും (Terms and Conditions)</h3>
-        <p><b>1. സ്വർണ്ണ ഉടമസ്ഥാവകാശ പ്രഖ്യാപനം:</b> പണയപ്പെടുത്തുന്നതിനായി ഹാജരാക്കിയിട്ടുള്ള സ്വർണ്ണാഭരണങ്ങൾ പൂർണ്ണമായും വായ്പക്കാരന്റെ സ്വന്തം ഉടമസ്ഥതയിലുള്ളതാണെന്ന് ഇതിനാൽ സാക്ഷ്യപ്പെടുത്തുന്നു.</p>
-        <p><b>2. തിരിച്ചടവ് ബാധ്യതകൾ:</b> വായ്പക്കാരൻ മുകളിൽ ഒപ്പിട്ടിട്ടുള്ള നിബന്ധനകൾ പ്രകാരം എല്ലാ മാസവും കൃത്യസമയത്ത് പ്രതിമാസ തവണകളോ (EMI) അല്ലെങ്കിൽ പലിശയോ അടച്ചുതീർക്കാൻ ബാധ്യസ്ഥനാണ്.</p>
-        <p><b>3. വീഴ്ചയും ലേലം ചെയ്യാനുള്ള അവകാശവും:</b> വായ്പക്കാരൻ തിരിച്ചടവിൽ വീഴ്ച വരുത്തിയാൽ, പണയം വെച്ചിരിക്കുന്ന സ്വർണ്ണം നിയമാനുസൃതമായി പരസ്യ ലേലത്തിൽ (Public Auction) വിൽക്കാനുള്ള പൂർണ്ണ അധികാരം സ്ഥാപനത്തിനുണ്ടായിരിക്കുന്നതാണ്.</p>
         
-        <br><br>
+        <br>
         <table style="width:100%; margin-top:30px;">
             <tr>
                 <td>___________________________<br><b>വായ്പക്കാരന്റെ ഒപ്പ് / വിരലടയാളം</b></td>
                 <td style="text-align:right;">___________________________<br><b>സ്ഥാപന അധികാരിയുടെ ഒപ്പ്</b></td>
             </tr>
+        </table>
+    </div>
+    """
+
+def generate_fee_receipt_html(loan_row, party_row):
+    total_fees = loan_row['processing_fee'] + loan_row['admin_fee'] + loan_row['documentation_fee']
+    return f"""
+    <div class="printable-ledger receipt-box">
+        <h2 style="text-align:center;margin-bottom:2px;color:#b8860b;">AURA LOAN MANAGEMENT SYSTEM</h2>
+        <h4 style="text-align:center;margin-top:0px;color:#555;">📋 ഫീസ് അടച്ച വൗച്ചർ / FEES RECEIPT</h4>
+        <hr style="border-top: 1px dashed #000;">
+        <table style="width:100%; margin-bottom:15px; font-size:14px;">
+            <tr><td><b>കസ്റ്റമർ പേര് (Name):</b> {party_row['name']}</td><td><b>രസീത് നമ്പർ (Receipt No):</b> #FEE-{loan_row['id']}</td></tr>
+            <tr><td><b>ലോൺ ലിങ്ക് ഐഡി (Loan Ref ID):</b> #{loan_row['id']}</td><td><b>തീയതി (Date):</b> {loan_row['disbursed_date']}</td></tr>
+            <tr><td><b>മൊബൈൽ (Mobile):</b> {party_row['mobile']}</td><td><b>സ്റ്റാറ്റസ് (Status):</b> <span style="color:green;font-weight:bold;">Paid</span></td></tr>
+        </table>
+        
+        <table class="printable-table">
+            <thead>
+                <tr style="background-color: #f9f9f9;"><th>ക്രമ നമ്പർ (Sl No)</th><th>ഫീസ് വിവരണം (Fee Description)</th><th>ഈടാക്കിയ തുക (Amount Collected)</th></tr>
+            </thead>
+            <tbody>
+                <tr><td style="text-align:center;">1</td><td>പ്രോസസ്സിംഗ് ഫീസ് (Processing Fee)</td><td>₹{loan_row['processing_fee']:,.2f}</td></tr>
+                <tr><td style="text-align:center;">2</td><td>അഡ്മിൻ ഫീസ് (Admin Fee)</td><td>₹{loan_row['admin_fee']:,.2f}</td></tr>
+                <tr><td style="text-align:center;">3</td><td>ഡോക്യുമെന്റേഷൻ ഫീസ് (Documentation Fee)</td><td>₹{loan_row['documentation_fee']:,.2f}</td></tr>
+                <tr style="font-weight:bold; background-color: #f5f5f5;"><td colspan="2" style="text-align:right;">ആകെ ഈടാക്കിയ ഫീസ് (Total Service Charges):</td><td>₹{total_fees:,.2f}</td></tr>
+            </tbody>
+        </table>
+        <br>
+        <p style="font-size:13px; font-weight:bold;">തുക അക്ഷരത്തിൽ: രൂപ {total_fees} മാത്രം.</p>
+        <br>
+        <table style="width:100%; margin-top:20px; font-size:14px; text-align:center;">
+            <tr><td>____________________<br>ക്യാഷറുടെ ഒപ്പ് (Cashier)</td><td>____________________<br>കസ്റ്റമർ ഒപ്പ് (Customer Signature)</td></tr>
         </table>
     </div>
     """
@@ -220,27 +248,26 @@ st.title("💎 AuraLoan - Gold Loan Management System")
 st.markdown("---")
 
 # ==========================================
-# MODULE: DASHBOARD (CALCULATION FIXED)
+# MODULE: DASHBOARD
 # ==========================================
 if choice == "🏠 Dashboard":
     st.header("📊 Executive Portfolio Dashboard")
     conn = get_db_connection()
     
     total_active_loans = conn.execute("SELECT COUNT(*) FROM loans WHERE status='Active'").fetchone()[0]
-    total_disbursed = conn.execute("SELECT SUM(net_disbursed) FROM loans").fetchone()[0] or 0.0
-    total_payable_sum = conn.execute("SELECT SUM(total_payable) FROM loans WHERE status='Active'").fetchone()[0] or 0.0
+    total_disbursed = conn.execute("SELECT SUM(principal) FROM loans").fetchone()[0] or 0.0
     total_gold_wt = conn.execute("SELECT SUM(net_weight) FROM loans WHERE status='Active'").fetchone()[0] or 0.0
     
     col1, col2, col3 = st.columns(3)
     col1.metric("Active Loan Accounts", total_active_loans)
-    col2.metric("Total Net Capital Disbursed", f"₹{total_disbursed:,.2f}")
+    col2.metric("Total Disbursement (Principal Sum)", f"₹{total_disbursed:,.2f}")
     col3.metric("Total Gold Vaulted (Net)", f"{total_gold_wt:.2f} g")
     
     st.subheader("📈 Live Master Monitoring Stream")
     df_dashboard = pd.read_sql_query("""
-        SELECT l.id as 'Loan ID', p.name as 'Customer Name', l.principal as 'Principal (₹)', 
-               l.net_disbursed as 'Net Disbursed (₹)', l.interest_amount as 'Interest (₹)', 
-               l.total_payable as 'Total Payable (₹)', l.emi as 'Monthly EMI (₹)', l.status as 'Status'
+        SELECT l.id as 'Loan ID', p.name as 'Customer Name', l.principal as 'Principal/Disbursement (₹)', 
+               l.processing_fee as 'Processing (₹)', l.admin_fee as 'Admin (₹)', l.documentation_fee as 'Doc (₹)',
+               l.interest_amount as 'Interest Amount (₹)', l.total_payable as 'Total Payable (₹)', l.emi as 'Monthly EMI (₹)', l.status as 'Status'
         FROM loans l JOIN parties p ON l.party_id = p.id
     """, conn)
     st.dataframe(df_dashboard, use_container_width=True)
@@ -327,9 +354,9 @@ elif choice == "✏️ Edit Party Details":
 elif choice == "💰 Gold Loan Management":
     conn = get_db_connection()
     
-    # 💸 SUB-MODULE 1: DISBURSEMENT CALCULATOR MODULE
+    # 💸 SUB-MODULE 1: LOAN DISBURSEMENT WITH RECIPIENT SYSTEM
     if sub_choice == "💸 Loan Disbursement":
-        st.header("💸 Gold Loan Formulation & Simple Interest Engine")
+        st.header("💸 Gold Loan Formulation & Fee Receipt Generator")
         parties = conn.execute("SELECT id, name FROM parties WHERE kyc_status='Verified'").fetchall()
         
         if not parties:
@@ -362,28 +389,28 @@ elif choice == "💰 Gold Loan Management":
                         gold_photo_data = st.camera_input("ലൈവ് ഫോട്ടോ എടുക്കുക")
                     
                 with col2:
-                    st.markdown("#### 📊 Simple Flat Calculation Mode")
+                    st.markdown("#### 📊 Calculation Terms (Disbursement = Principal)")
                     max_eligible = appraised_val * 0.75
                     st.info(f"Regulatory 75% LTV Cap Limit: **₹{max_eligible:,.2f}**")
                     
-                    principal = st.number_input("തുക (Principal Loan Amount - ₹)", min_value=0.0, value=40375.0)
+                    # 🛠️ DISBURSEMENT IS REGISTERED DIRECTLY AS PRINCIPAL AMOUNT Vector
+                    principal = st.number_input("അനുവദിച്ച വായ്പ / Disbursement Amount (Principal) - ₹", min_value=0.0, value=40375.0)
                     interest_rate = st.number_input("പലിശ നിരക്ക് (Interest Rate % For Total Duration)", min_value=0.0, value=12.0)
                     duration = st.number_input("കാലാവധി (Tenure Duration - Months)", min_value=1, max_value=36, value=12)
                     
+                    st.markdown("---")
+                    st.markdown("#### 🏷️ ആഡ്ഓൺ ചാർജ്ജുകൾ (Service Fee Components)")
                     processing_fee = st.number_input("പ്രോസസ്സിംഗ് ഫീസ് (Processing Fee - ₹)", min_value=0.0, value=500.0)
                     admin_fee = st.number_input("അഡ്മിൻ ഫീസ് (Admin Fee - ₹)", min_value=0.0, value=200.0)
                     doc_fee = st.number_input("ഡോക്യുമെന്റേഷൻ ഫീസ് (Documentation Fee - ₹)", min_value=0.0, value=200.0)
                     
-                    # EXACT TARGET CALCULATION PATTERN:
-                    total_fees = processing_fee + admin_fee + doc_fee
-                    net_disbursed = principal - total_fees
-                    
+                    # CORE CALCULATION ASSIGNMENT:
                     interest_amount = principal * (interest_rate / 100)
                     total_payable = principal + interest_amount
                     calculated_emi = total_payable / duration if duration > 0 else 0.0
                     
                     st.markdown("---")
-                    st.write(f"**നൽകിയ തുക (Net Disbursed Amount):** ₹{net_disbursed:,.2f}")
+                    st.write(f"**അസ്സൽ തുക / നൽകിയ തുക (Disbursement Amount):** ₹{principal:,.2f}")
                     st.write(f"**പലിശ തുക (Interest Charged):** ₹{interest_amount:,.2f}")
                     st.write(f"**ആകെ അടയ്ക്കാനുള്ളത് (Total Payable):** ₹{total_payable:,.2f}")
                     st.write(f"**പ്രതിമാസ തവണ (EMI):** ₹{calculated_emi:,.2f}")
@@ -410,11 +437,11 @@ elif choice == "💰 Gold Loan Management":
                                 gross_weight, net_weight, purity_karat, appraised_value, vault_id, gold_image_base64, status, disbursed_date
                             ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 'Active', ?)
                         """, (selected_party, principal, interest_rate, duration, calculated_emi, 
-                          processing_fee, admin_fee, doc_fee, net_disbursed, interest_amount, total_payable,
+                          processing_fee, admin_fee, doc_fee, principal, interest_amount, total_payable,
                           gold_description, items_count, gross_wt, net_wt, purity, appraised_val, vault_id, base64_image_str, today_str))
                         
                         loan_id = cursor.lastrowid
-                        cursor.execute("INSERT INTO ledger (loan_id, transaction_type, amount, transaction_date) VALUES (?, 'Disbursement', ?, ?)", (loan_id, net_disbursed, today_str))
+                        cursor.execute("INSERT INTO ledger (loan_id, transaction_type, amount, transaction_date) VALUES (?, 'Disbursement', ?, ?)", (loan_id, principal, today_str))
                         
                         conn.commit()
                         st.success(f"Loan Account #{loan_id} successfully created.")
@@ -426,20 +453,20 @@ elif choice == "💰 Gold Loan Management":
                 loan_row = conn.execute(f"SELECT * FROM loans WHERE id={l_id}").fetchone()
                 party_row = conn.execute(f"SELECT * FROM parties WHERE id={loan_row['party_id']}").fetchone()
                 
-                st.markdown("---")
-                st.subheader("📄 ഇൻസ്റ്റന്റ് വായ്പാ കരാർ ഫോം (Instant Agreement Form)")
+                tab_voucher, tab_fee_receipt = st.tabs(["📄 വായ്പാ കരാർ ഫോം (Agreement Form)", "🖨️ ഫീസ് രസീത് (Separate Fee Receipt)"])
                 
-                instant_html = generate_agreement_html(loan_row, party_row)
-                st.markdown(instant_html, unsafe_allow_html=True)
+                with tab_voucher:
+                    instant_html = generate_agreement_html(loan_row, party_row)
+                    st.markdown(instant_html, unsafe_allow_html=True)
+                    st.download_button(label="📥 ഡൗൺലോഡ് കരാർ പത്രം (Download Agreement)", data=instant_html, file_name=f"Agreement_Loan_{l_id}.html", mime="text/html")
                 
-                st.download_button(
-                    label="📥 ഡൗൺലോഡ് ഇൻസ്റ്റന്റ് ഫോം (Download HTML Form)",
-                    data=instant_html,
-                    file_name=f"Instant_Form_Loan_{l_id}.html",
-                    mime="text/html"
-                )
+                # 🖨️ SEPARATE CHARGES FEE RECEIPT TAB
+                with tab_fee_receipt:
+                    fee_html = generate_fee_receipt_html(loan_row, party_row)
+                    st.markdown(fee_html, unsafe_allow_html=True)
+                    st.download_button(label="📥 പ്രിന്റ് ഫീസ് രസീത് (Download Fee Receipt)", data=fee_html, file_name=f"Fee_Receipt_Loan_{l_id}.html", mime="text/html")
 
-    # 📊 SUB-MODULE 2: PARTY LEDGER ACCOUNTING WITH UPDATED FORMULA MATCH
+    # 📊 SUB-MODULE 2: PARTY LEDGER ACCOUNTANT
     elif sub_choice == "📊 Party Ledger":
         st.header("📊 Customer Ledger Statements")
         active_loans = conn.execute("SELECT l.id, p.name, l.principal FROM loans l JOIN parties p ON l.party_id = p.id WHERE l.status='Active'").fetchall()
@@ -466,16 +493,16 @@ elif choice == "💰 Gold Loan Management":
                             st.rerun()
                             
             with tab_view:
-                loan_row_data = conn.execute(f"SELECT total_payable FROM loans WHERE id={selected_loan}").fetchone()
+                loan_row_data = conn.execute(f"SELECT total_payable, principal FROM loans WHERE id={selected_loan}").fetchone()
                 total_liability = float(loan_row_data['total_payable'] or 0.0)
                 total_repaid_credits = conn.execute(f"SELECT SUM(amount) FROM ledger WHERE loan_id={selected_loan} AND transaction_type IN ('Repayment', 'Interest Settlement')").fetchone()[0]
                 total_repaid_credits = float(total_repaid_credits or 0.0)
                 live_outstanding_balance = total_liability - total_repaid_credits
                 
                 col_m1, col_m2, col_m3 = st.columns(3)
-                col_m1.metric("Total Payable (ആകെ അടയ്ക്കേണ്ടത്)", f"₹{total_liability:,.2f}")
-                col_m2.metric("Total Repaid (ഇതുവരെ അടച്ചത്)", f"₹{total_repaid_credits:,.2f}")
-                col_m3.metric("Current Outstanding (ബാക്കി കുടിശ്ശിക)", f"₹{live_outstanding_balance:,.2f}", delta_color="inverse")
+                col_m1.metric("Disbursed/Principal Amount", f"₹{loan_row_data['principal']:,.2f}")
+                col_m2.metric("Total Payable (with Interest)", f"₹{total_liability:,.2f}")
+                col_m3.metric("Current Outstanding", f"₹{live_outstanding_balance:,.2f}", delta_color="inverse")
                 
                 tx_history_df = pd.read_sql_query(f"SELECT transaction_type as 'Activity Type', amount as 'Value (₹)', transaction_date as 'Date' FROM ledger WHERE loan_id={selected_loan} ORDER BY ROWID ASC", conn)
                 st.table(tx_history_df)
@@ -508,13 +535,14 @@ elif choice == "💰 Gold Loan Management":
                             <tr><th>തീയതി (Date)</th><th>വിവരണം (Description)</th><th>തുക (Amount)</th></tr>
                         </thead>
                         <tbody>
-                            <tr><td>{p_loan['disbursed_date']}</td><td>Initial Loan Principal</td><td>₹{p_loan['principal']:,.2f}</td></tr>
+                            <tr><td>{p_loan['disbursed_date']}</td><td>Loan Disbursement (Principal)</td><td>₹{p_loan['principal']:,.2f}</td></tr>
                             <tr><td>{p_loan['disbursed_date']}</td><td>Fixed Term Interest Charged</td><td>₹{p_loan['interest_amount']:,.2f}</td></tr>
                             {table_html_rows}
                         </tbody>
                     </table>
                     
                     <div style="margin-top:20px; text-align:right; font-size:16px;">
+                        <p><b>അസ്സൽ തുക (Disbursement Principal):</b> ₹{p_loan['principal']:,.2f}</p>
                         <p><b>ആകെ അടയ്ക്കേണ്ടത് (Total Payable):</b> ₹{p_loan['total_payable']:,.2f}</p>
                         <p><b>ഇതുവരെ അടച്ചത് (Total Repaid):</b> ₹{total_repaid:,.2f}</p>
                         <p style="color:red; font-size:18px;"><b>ബാക്കി കുടിശ്ശിക (Outstanding Balance):</b> ₹{balance_left:,.2f}</p>
@@ -522,7 +550,7 @@ elif choice == "💰 Gold Loan Management":
                 </div>
                 """
                 st.markdown(printable_html, unsafe_allow_html=True)
-                st.download_button(label="📥 ഡൗൺലോഡ് & പ്രിന്റ് ലെഡ്ജർ (Download HTML)", data=printable_html, file_name=f"Ledger_Loan_{selected_loan}.html", mime="text/html")
+                st.download_button(label="📥 ഡൗൺലോഡ് ലെഡ്ജർ (Download HTML Ledger)", data=printable_html, file_name=f"Ledger_Loan_{selected_loan}.html", mime="text/html")
     conn.close()
 
 # ==========================================
@@ -553,10 +581,10 @@ elif choice == "💍 Gold Pledge Management":
     conn.close()
 
 # ==========================================
-# MODULE: LOAN AGREEMENT MALAYALAM
+# MODULE: LOAN AGREEMENT MALAYALAM (DEDICATED SEARCH)
 # ==========================================
 elif choice == "📄 Loan Agreement (Malayalam)":
-    st.header("📄 Malayalam Legal Agreement Generation Console")
+    st.header("📄 Malayalam Legal Agreement Console")
     conn = get_db_connection()
     available_contracts = conn.execute("SELECT l.id, p.name FROM loans l JOIN parties p ON l.party_id=p.id").fetchall()
     
@@ -569,19 +597,21 @@ elif choice == "📄 Loan Agreement (Malayalam)":
         loan_row = conn.execute(f"SELECT * FROM loans WHERE id={target_contract}").fetchone()
         party_row = conn.execute(f"SELECT * FROM parties WHERE id={loan_row['party_id']}").fetchone()
         
-        agreement_html = generate_agreement_html(loan_row, party_row)
-        st.markdown(agreement_html, unsafe_allow_html=True)
+        tab_contract_view, tab_receipt_view = st.tabs(["📜 കരാർ പത്രം (Agreement)", "🧾 ഫീസ് രസീത് (Fee Receipt)"])
         
-        st.download_button(
-            label="📥 ഡൗൺലോഡ് കരാർ പത്രം (Download Agreement HTML)",
-            data=agreement_html,
-            file_name=f"Agreement_Loan_{loan_row['id']}.html",
-            mime="text/html"
-        )
+        with tab_contract_view:
+            agreement_html = generate_agreement_html(loan_row, party_row)
+            st.markdown(agreement_html, unsafe_allow_html=True)
+            st.download_button(label="📥 ഡൗൺലോഡ് കരാർ പത്രം (Download Agreement HTML)", data=agreement_html, file_name=f"Agreement_Loan_{loan_row['id']}.html", mime="text/html")
+            
+        with tab_receipt_view:
+            fee_html = generate_fee_receipt_html(loan_row, party_row)
+            st.markdown(fee_html, unsafe_allow_html=True)
+            st.download_button(label="📥 ഡൗൺലോഡ് ഫീസ് രസീത് (Download Fee Receipt HTML)", data=fee_html, file_name=f"Fee_Receipt_Loan_{loan_row['id']}.html", mime="text/html")
     conn.close()
 
 # ==========================================
-# MODULE: EMI SCHEDULE MATRIX (SYNC WITH REVISED RULES)
+# MODULE: EMI SCHEDULE MATRIX
 # ==========================================
 elif choice == "📅 EMI Schedule":
     st.header("📅 Monthly Recovery Projection Mapping (EMI Schedule)")
@@ -626,7 +656,8 @@ elif choice == "📅 EMI Schedule":
             <hr>
             <table style="width:100%; margin-bottom:20px; font-size:14px;">
                 <tr><td><b>കസ്റ്റമർ പേര് (Name):</b> {target_l['name']}</td><td><b>ലോൺ നമ്പർ (Loan ID):</b> #{target_l['id']}</td></tr>
-                <tr><td><b>ഫോൺ (Mobile):</b> {target_l['mobile']}</td><td><b>ആകെ തുക (Total Liability):</b> ₹{target_l['total_payable']:,.2f}</td></tr>
+                <tr><td><b>ഫോൺ (Mobile):</b> {target_l['mobile']}</td><td><b>അസ്സൽ വായ്പ (Principal/Disbursed):</b> ₹{target_l['principal']:,.2f}</td></tr>
+                <tr><td><b>ആകെ അടയ്ക്കേണ്ടത് (Total Liability):</b> ₹{target_l['total_payable']:,.2f}</td></tr>
             </table>
             
             <table class="printable-table">
@@ -646,12 +677,7 @@ elif choice == "📅 EMI Schedule":
         
         with st.expander("🖨️ പ്രിന്റ് ചെയ്യാവുന്ന EMI ഷെഡ്യൂൾ കാണുക"):
             st.markdown(printable_schedule_html, unsafe_allow_html=True)
-            st.download_button(
-                label="📥 ഡൗൺലോഡ് & പ്രിന്റ് ഷെഡ്യൂൾ (Download Schedule Sheet)",
-                data=printable_schedule_html,
-                file_name=f"EMI_Schedule_Loan_{selected_sched}.html",
-                mime="text/html"
-            )
+            st.download_button(label="📥 ഡൗൺലോഡ് & പ്രിന്റ് ഷെഡ്യൂൾ (Download Schedule Sheet)", data=printable_schedule_html, file_name=f"EMI_Schedule_Loan_{selected_sched}.html", mime="text/html")
     conn.close()
 
 # ==========================================
@@ -684,6 +710,8 @@ elif choice == "💾 Backup & Restore":
         mime="application/octet-stream"
     )
     conn.close()
+
+
 
 
 

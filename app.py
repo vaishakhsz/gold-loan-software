@@ -4,7 +4,6 @@ import sqlite3
 from datetime import datetime
 import io
 import base64
-import textwrap  # Added to prevent Markdown from interpreting indented HTML as code blocks
 
 # ==========================================
 # 1. DATABASE INITIALIZATION & STRUCTURE
@@ -114,7 +113,7 @@ count_gold = conn.execute("SELECT COUNT(*) FROM loans WHERE status='Active'").fe
 count_tx = conn.execute("SELECT COUNT(*) FROM ledger").fetchone()[0]
 conn.close()
 
-# Helper function to generate standardized agreement HTML string
+# Helper function to generate standardized agreement HTML string (Fees & Net Disbursed Hidden)
 def generate_agreement_html(loan_row, party_row):
     image_html_tag = ""
     if loan_row['gold_image_base64']:
@@ -127,7 +126,7 @@ def generate_agreement_html(loan_row, party_row):
     else:
         image_html_tag = "<p style='color:grey; font-style:italic; text-align:center;'>ചിത്രം ലഭ്യമല്ല (No photo attached)</p>"
 
-    html_content = f"""
+    return f"""
     <div class="agreement-box">
         <h2 class="gold-header">സ്വർണ്ണപ്പണയ വായ്പാ കരാർ പത്രം (Gold Loan Agreement)</h2>
         <p><b>കരാർ നമ്പർ (Agreement No):</b> #{loan_row['id']} &nbsp;&nbsp;|&nbsp;&nbsp; <b>തീയതി (Date):</b> {loan_row['disbursed_date']}</p>
@@ -175,12 +174,11 @@ def generate_agreement_html(loan_row, party_row):
         </table>
     </div>
     """
-    return textwrap.dedent(html_content)
 
 # Helper function to generate Add-on Charges Fee Receipt
 def generate_fee_receipt_html(loan_row, party_row):
     total_fees = loan_row['processing_fee'] + loan_row['admin_fee'] + loan_row['documentation_fee']
-    html_content = f"""
+    return f"""
     <div class="printable-ledger receipt-box">
         <h2 style="text-align:center;margin-bottom:2px;color:#b8860b;">AURA LOAN MANAGEMENT SYSTEM</h2>
         <h4 style="text-align:center;margin-top:0px;color:#555;">📋 ഫീസ് അടച്ച വൗച്ചർ / FEES RECEIPT</h4>
@@ -210,7 +208,6 @@ def generate_fee_receipt_html(loan_row, party_row):
         </table>
     </div>
     """
-    return textwrap.dedent(html_content)
 
 # ==========================================
 # 3. SIDEBAR NAVIGATION MANAGEMENT
@@ -456,12 +453,10 @@ elif choice == "💰 Gold Loan Management":
                 
                 with tab_voucher:
                     instant_html = generate_agreement_html(loan_row, party_row)
-                    st.markdown(instant_html, unsafe_allow_html=True)
                     st.download_button(label="📥 ഡൗൺലോഡ് കരാർ പത്രം (Download Agreement)", data=instant_html, file_name=f"Agreement_Loan_{l_id}.html", mime="text/html")
                 
                 with tab_fee_receipt:
                     fee_html = generate_fee_receipt_html(loan_row, party_row)
-                    st.markdown(fee_html, unsafe_allow_html=True)
                     st.download_button(label="📥 പ്രിന്റ് ഫീസ് രസീത് (Download Fee Receipt)", data=fee_html, file_name=f"Fee_Receipt_Loan_{l_id}.html", mime="text/html")
 
     # 📊 SUB-MODULE 2: PARTY LEDGER ACCOUNTANT
@@ -549,8 +544,6 @@ elif choice == "💰 Gold Loan Management":
                     </div>
                 </div>
                 """
-                printable_html = textwrap.dedent(printable_html)
-                st.markdown(printable_html, unsafe_allow_html=True)
                 st.download_button(label="📥 ഡൗൺലോഡ് ലെഡ്ജർ (Download HTML Ledger)", data=printable_html, file_name=f"Ledger_Loan_{selected_loan}.html", mime="text/html")
     conn.close()
 
@@ -598,16 +591,14 @@ elif choice == "📄 Loan Agreement (Malayalam)":
         loan_row = conn.execute(f"SELECT * FROM loans WHERE id={target_contract}").fetchone()
         party_row = conn.execute(f"SELECT * FROM parties WHERE id={loan_row['party_id']}").fetchone()
         
-        tab_contract_view, tab_receipt_view = st.tabs(["📜 കരാർ പത്രം (Agreement)", "🧾 ഫീസ് രസീത് (Fee Receipt)"])
+        tab_contract_view, tab_receipt_view = st.tabs(["📜 വൗച്ചർ ഡൗൺലോഡ് (Agreement Form)", "🧾 രസീത് ഡൗൺലോഡ് (Fee Receipt)"])
         
         with tab_contract_view:
             agreement_html = generate_agreement_html(loan_row, party_row)
-            st.markdown(agreement_html, unsafe_allow_html=True)
             st.download_button(label="📥 ഡൗൺലോഡ് കരാർ പത്രം (Download Agreement HTML)", data=agreement_html, file_name=f"Agreement_Loan_{loan_row['id']}.html", mime="text/html")
             
         with tab_receipt_view:
             fee_html = generate_fee_receipt_html(loan_row, party_row)
-            st.markdown(fee_html, unsafe_allow_html=True)
             st.download_button(label="📥 ഡൗൺലോഡ് ഫീസ് രസീത് (Download Fee Receipt HTML)", data=fee_html, file_name=f"Fee_Receipt_Loan_{loan_row['id']}.html", mime="text/html")
     conn.close()
 
@@ -675,11 +666,8 @@ elif choice == "📅 EMI Schedule":
             </table>
         </div>
         """
-        printable_schedule_html = textwrap.dedent(printable_schedule_html)
         
-        with st.expander("🖨️ പ്രിന്റ് ചെയ്യാവുന്ന EMI ഷെഡ്യൂൾ കാണുക"):
-            st.markdown(printable_schedule_html, unsafe_allow_html=True)
-            st.download_button(label="📥 ഡൗൺലോഡ് & പ്രിന്റ് ഷെഡ്യൂൾ (Download Schedule Sheet)", data=printable_schedule_html, file_name=f"EMI_Schedule_Loan_{selected_sched}.html", mime="text/html")
+        st.download_button(label="📥 ഡൗൺലോഡ് & പ്രിന്റ് ഷെഡ്യൂൾ (Download Schedule Sheet)", data=printable_schedule_html, file_name=f"EMI_Schedule_Loan_{selected_sched}.html", mime="text/html")
     conn.close()
 
 # ==========================================
@@ -712,6 +700,7 @@ elif choice == "💾 Backup & Restore":
         mime="application/octet-stream"
     )
     conn.close()
+
 
 
 

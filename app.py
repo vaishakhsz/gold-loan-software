@@ -1,3 +1,4 @@
+
 import streamlit as st
 import pandas as pd
 import sqlite3
@@ -374,7 +375,6 @@ elif choice == "✏️ Edit/Delete Party Profile":
             confirm_delete_text = st.text_input("Type 'DELETE' to confirm action:")
             if st.button("Confirm Account Destruction"):
                 if confirm_delete_text == "DELETE":
-                    # Check for loans first
                     has_loans = conn.execute("SELECT COUNT(*) FROM loans WHERE party_id = ?", (party_to_edit,)).fetchone()[0]
                     if has_loans > 0:
                         st.error("Cannot delete profile: This customer has existing active or closed gold loan files recorded.")
@@ -397,7 +397,6 @@ elif choice == "💰 Gold Loan Management":
     if sub_choice == "💸 Loan Disbursement":
         st.header("💸 Gold Loan Formulation (Disbursement = Principal)")
         
-        # FIXED QUERY CASE-INSENSITIVE OR PROPER SELECTION MATCHING 'Verified'
         parties = conn.execute("SELECT id, name FROM parties WHERE kyc_status = 'Verified'").fetchall()
         
         if not parties:
@@ -513,33 +512,43 @@ elif choice == "💰 Gold Loan Management":
             loan_options = {al['id']: f"Loan #{al['id']} - Holder: {al['name']} (₹{al['principal']})" for al in active_loans}
             selected_loan = st.selectbox("Select Target Portfolio File", list(loan_options.keys()), format_func=lambda x: loan_options[x])
             
+            # Fetch liability balance details
+            loan_row_data = conn.execute(f"SELECT total_payable, principal FROM loans WHERE id={selected_loan}").fetchone()
+            total_liability = float(loan_row_data['total_payable'] or 0.0)
+            total_repaid_credits = conn.execute(f"SELECT SUM(amount) FROM ledger WHERE loan_id={selected_loan} AND transaction_type IN ('Repayment', 'Interest Settlement')").fetchone()[0]
+            total_repaid_credits = float(total_repaid_credits or 0.0)
+            live_outstanding_balance = total_liability - total_repaid_credits
+            
+            if live_outstanding_balance < 0.01:
+                live_outstanding_balance = 0.0
+            
             tab_post, tab_view, tab_print = st.tabs(["💳 Collection Repayment Entry", "📑 View Balancing Ledger Statement", "🖨️ Generate Printable Sheet"])
             
             with tab_post:
-                with st.form("repayment_ledger_post_form"):
-                    repay_amt = st.number_input("Repayment Collected (₹)", min_value=0.0, step=100.0)
-                    repay_date = st.date_input("Settlement Date")
-                    type_tx = st.selectbox("Allocation Type", ["Repayment", "Interest Settlement"])
-                    
-                    if st.form_submit_button("Post Entry"):
-                        if repay_amt > 0:
-                            conn.execute("INSERT INTO ledger (loan_id, transaction_type, amount, transaction_date) VALUES (?, ?, ?, ?)", (selected_loan, type_tx, repay_amt, str(repay_date)))
-                            conn.commit()
-                            st.success("Repayment entry saved inside ledger.")
-                            st.balloons()
-                            st.rerun()
+                if live_outstanding_balance <= 0.0:
+                    st.success("🎉 Already Repaid / Bill completely paid in full.")
+                else:
+                    with st.form("repayment_ledger_post_form"):
+                        repay_amt = st.number_input("Repayment Collected (₹)", min_value=0.0, max_value=live_outstanding_balance, step=100.0, help="Cannot exceed remaining outstanding debt limit.")
+                        repay_date = st.date_input("Settlement Date")
+                        type_tx = st.selectbox("Allocation Type", ["Repayment", "Interest Settlement"])
+                        
+                        if st.form_submit_button("Post Entry"):
+                            if repay_amt > 0:
+                                conn.execute("INSERT INTO ledger (loan_id, transaction_type, amount, transaction_date) VALUES (?, ?, ?, ?)", (selected_loan, type_tx, repay_amt, str(repay_date)))
+                                conn.commit()
+                                st.success("Repayment entry saved inside ledger.")
+                                st.rerun()
                             
             with tab_view:
-                loan_row_data = conn.execute(f"SELECT total_payable, principal FROM loans WHERE id={selected_loan}").fetchone()
-                total_liability = float(loan_row_data['total_payable'] or 0.0)
-                total_repaid_credits = conn.execute(f"SELECT SUM(amount) FROM ledger WHERE loan_id={selected_loan} AND transaction_type IN ('Repayment', 'Interest Settlement')").fetchone()[0]
-                total_repaid_credits = float(total_repaid_credits or 0.0)
-                live_outstanding_balance = total_liability - total_repaid_credits
-                
                 col_m1, col_m2, col_m3 = st.columns(3)
                 col_m1.metric("Disbursement / Principal Amount", f"₹{loan_row_data['principal']:,.2f}")
                 col_m2.metric("Total Payable (with Interest)", f"₹{total_liability:,.2f}")
-                col_m3.metric("Current Outstanding Balance", f"₹{live_outstanding_balance:,.2f}", delta_color="inverse")
+                
+                if live_outstanding_balance <= 0.0:
+                    col_m3.metric("Current Outstanding Balance", "Already Repaid")
+                else:
+                    col_m3.metric("Current Outstanding Balance", f"₹{live_outstanding_balance:,.2f}", delta_color="inverse")
                 
                 tx_history_df = pd.read_sql_query(f"SELECT transaction_type as 'Activity Type', amount as 'Value (₹)', transaction_date as 'Date' FROM ledger WHERE loan_id={selected_loan} ORDER BY ROWID ASC", conn)
                 st.table(tx_history_df)
@@ -556,6 +565,11 @@ elif choice == "💰 Gold Loan Management":
                 
                 total_repaid = sum([t['amount'] for t in tx_rows if t['transaction_type'] in ['Repayment', 'Interest Settlement']])
                 balance_left = p_loan['total_payable'] - total_repaid
+                
+                if balance_left < 0.01:
+                    balance_html_str = "<b style='color:green; font-size:18px;'>Already Repaid / Paid in Full</b>"
+                else:
+                    balance_html_str = f"<b>₹{balance_left:,.2f}</b>"
                 
                 printable_html = f"""
                 <div class="printable-ledger">
@@ -584,7 +598,7 @@ elif choice == "💰 Gold Loan Management":
                         <hr style="border-top: 1px solid #000; width: 40%; margin-left: auto;">
                         <p><b>ആകെ അടയ്ക്കേണ്ടത് (Total Payable):</b> ₹{p_loan['total_payable']:,.2f}</p>
                         <p style="color:green;"><b>ഇതുവരെ അടച്ചത് (Total Repaid):</b> ₹{total_repaid:,.2f}</p>
-                        <p style="color:red; font-size:18px;"><b>ബാക്കി കുടിശ്ശിക (Outstanding Balance):</b> <b>₹{balance_left:,.2f}</b></p>
+                        <p style="color:red; font-size:18px;"><b>ബാക്കി കുടിശ്ശിക (Outstanding Balance):</b> {balance_html_str}</p>
                     </div>
                 </div>
                 """
@@ -670,17 +684,22 @@ elif choice == "📅 EMI Schedule":
             remaining_reduction_pool -= target_l['emi']
             current_rem = max(0.0, remaining_reduction_pool)
             
+            if current_rem < 0.01:
+                display_rem = "Already Repaid"
+            else:
+                display_rem = f"₹{current_rem:,.2f}"
+                
             schedule_rows_html += f"""
             <tr>
                 <td style="border: 1px solid #000; padding: 8px; text-align: center;">Month {index}</td>
                 <td style="border: 1px solid #000; padding: 8px;">₹{target_l['emi']:,.2f}</td>
-                <td style="border: 1px solid #000; padding: 8px;">₹{current_rem:,.2f}</td>
+                <td style="border: 1px solid #000; padding: 8px;">{display_rem}</td>
             </tr>
             """
             schedule_list.append({
                 "Installment": f"Month No. {index}",
                 "Payment Amount (₹)": f"₹{target_l['emi']:,.2f}",
-                "Outstanding Balance (₹)": f"₹{current_rem:,.2f}"
+                "Outstanding Balance": display_rem
             })
             
         st.table(pd.DataFrame(schedule_list))
@@ -711,7 +730,7 @@ elif choice == "📅 EMI Schedule":
         </div>
         """
         
-        st.download_button(label="📥 ഡൗൺലോഡ് & പ്രിന്റ് ഷെഡ్యూൾ (Download Schedule Sheet)", data=printable_schedule_html, file_name=f"EMI_Schedule_Loan_{selected_sched}.html", mime="text/html")
+        st.download_button(label="📥 ഡൗൺലോഡ് & പ്രിന്റ് ഷെഡ്യൂൾ (Download Schedule Sheet)", data=printable_schedule_html, file_name=f"EMI_Schedule_Loan_{selected_sched}.html", mime="text/html")
     conn.close()
 
 # ==========================================
@@ -721,7 +740,6 @@ elif choice == "💾 Backup, Restore & Upload":
     st.header("💾 Storage Engine Maintenance & Data Integration Tools")
     conn = get_db_connection()
     
-    # Data Import / Upload Segment
     st.subheader("📥 Upload Existing Datasets (CSV Imports)")
     target_upload_table = st.selectbox("Select Destination Database Table to Populate:", ["parties", "loans"])
     uploaded_csv = st.file_uploader(f"Choose a CSV file containing '{target_upload_table}' row records", type=["csv"])
@@ -741,7 +759,6 @@ elif choice == "💾 Backup, Restore & Upload":
             
     st.markdown("---")
     
-    # Export Segment
     st.subheader("📤 Local Backup Operations")
     col1, col2 = st.columns(2)
     with col1:
@@ -766,6 +783,8 @@ elif choice == "💾 Backup, Restore & Upload":
         mime="application/octet-stream"
     )
     conn.close()
+
+
 
 
 

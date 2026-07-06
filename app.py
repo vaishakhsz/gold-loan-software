@@ -526,6 +526,7 @@ elif choice == "💰 Gold Loan Management":
                             conn.execute("INSERT INTO ledger (loan_id, transaction_type, amount, transaction_date) VALUES (?, ?, ?, ?)", (selected_loan, type_tx, repay_amt, str(repay_date)))
                             conn.commit()
                             st.success("Repayment entry saved inside ledger.")
+                            st.balloons()
                             st.rerun()
                             
             with tab_view:

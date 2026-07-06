@@ -1,4 +1,3 @@
-
 import streamlit as st
 import pandas as pd
 import sqlite3
@@ -375,9 +374,10 @@ elif choice == "✏️ Edit/Delete Party Profile":
             confirm_delete_text = st.text_input("Type 'DELETE' to confirm action:")
             if st.button("Confirm Account Destruction"):
                 if confirm_delete_text == "DELETE":
-                    has_loans = conn.execute("SELECT COUNT(*) FROM loans WHERE party_id = ?", (party_to_edit,)).fetchone()[0]
+                    # FIX 1: Filter check to allow deletion if previous loans are completely 'Closed'
+                    has_loans = conn.execute("SELECT COUNT(*) FROM loans WHERE party_id = ? AND status = 'Active'", (party_to_edit,)).fetchone()[0]
                     if has_loans > 0:
-                        st.error("Cannot delete profile: This customer has existing active or closed gold loan files recorded.")
+                        st.error("Cannot delete profile: This customer still has active gold loan files recorded.")
                     else:
                         conn.execute("DELETE FROM parties WHERE id = ?", (party_to_edit,))
                         conn.commit()
@@ -536,6 +536,11 @@ elif choice == "💰 Gold Loan Management":
                         if st.form_submit_button("Post Entry"):
                             if repay_amt > 0:
                                 conn.execute("INSERT INTO ledger (loan_id, transaction_type, amount, transaction_date) VALUES (?, ?, ?, ?)", (selected_loan, type_tx, repay_amt, str(repay_date)))
+                                
+                                # FIX 2: Check if this installment covers the remaining balance entirely. If so, flip status to Closed.
+                                if repay_amt >= live_outstanding_balance:
+                                    conn.execute("UPDATE loans SET status = 'Closed' WHERE id = ?", (selected_loan,))
+                                
                                 conn.commit()
                                 st.success("Repayment entry saved inside ledger.")
                                 st.rerun()
@@ -783,8 +788,6 @@ elif choice == "💾 Backup, Restore & Upload":
         mime="application/octet-stream"
     )
     conn.close()
-
-
 
 
 

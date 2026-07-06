@@ -87,16 +87,37 @@ init_db()
 # ==========================================
 st.set_page_config(page_title="AuraLoan | Gold Loan System", layout="wide", page_icon="💎")
 
+# Custom Styles for Goldish Background and Elements
 st.markdown("""
     <style>
-    .gold-header { color: #b8860b; font-weight: bold; text-align: center; margin-bottom: 20px; }
+    /* Global App Background */
+    .stApp {
+        background-color: #FAF6EE !important;
+    }
+    
+    /* Top Headers & Cards */
+    .gold-header { color: #8B6508; font-weight: bold; text-align: center; margin-bottom: 20px; }
+    
+    .stMetric { 
+        background-color: #FFFDF7 !important; 
+        padding: 15px; 
+        border-radius: 8px; 
+        border: 1px solid #E3C16F !important;
+        box-shadow: 0px 2px 4px rgba(227, 193, 111, 0.1);
+    }
+    
+    /* Form Custom Borders */
+    div[data-testid="stForm"] {
+        background-color: #FFFDF9 !important;
+        border: 1px solid #E3C16F !important;
+        border-radius: 10px;
+    }
+    
+    /* Document Download Containers styling elements inside downloaded files */
     .agreement-box { border: 2px solid #b8860b; padding: 30px; background-color: #fcfcf4; border-radius: 10px; font-family: 'Inter', sans-serif; color: #333; line-height: 1.7; }
     .agreement-table { width: 100%; border-collapse: collapse; margin-top: 15px; margin-bottom: 15px; }
     .agreement-table th, .agreement-table td { border: 1px solid #b8860b; padding: 10px; text-align: left; }
     .agreement-table th { background-color: #f5f0db; color: #b8860b; }
-    .stMetric { background-color: #f8f9fa; padding: 15px; border-radius: 5px; border: 1px solid #eee; }
-    
-    /* Printable Invoice & Ledger Styles */
     .printable-ledger { font-family: Arial, sans-serif; padding: 25px; border: 1px solid #ccc; background-color: white; color: black; border-radius: 5px; }
     .printable-table { width: 100%; border-collapse: collapse; margin-top: 10px; }
     .printable-table th, .printable-table td { border: 1px solid #000; padding: 8px; text-align: left; }
@@ -113,7 +134,7 @@ count_gold = conn.execute("SELECT COUNT(*) FROM loans WHERE status='Active'").fe
 count_tx = conn.execute("SELECT COUNT(*) FROM ledger").fetchone()[0]
 conn.close()
 
-# Helper function to generate standardized agreement HTML string (Fees & Net Disbursed Hidden)
+# Helper function to generate standardized agreement HTML string
 def generate_agreement_html(loan_row, party_row):
     image_html_tag = ""
     if loan_row['gold_image_base64']:
@@ -216,12 +237,12 @@ st.sidebar.markdown("### 📋 Navigation")
 main_menu = [
     "🏠 Dashboard",
     "👤 Party Master",
-    "✏️ Edit Party Details",
+    "✏️ Edit/Delete Party Profile",
     "💰 Gold Loan Management",
     "💍 Gold Pledge Management",
     "📄 Loan Agreement (Malayalam)",
     "📅 EMI Schedule",
-    "💾 Backup & Restore"
+    "💾 Backup, Restore & Upload"
 ]
 choice = st.sidebar.selectbox("Select Module", main_menu)
 
@@ -240,7 +261,7 @@ st.sidebar.write(f"💰 Loans: **{count_loans}**")
 st.sidebar.write(f"💍 Gold: **{count_gold}**")
 st.sidebar.write(f"📝 Transactions: **{count_tx}**")
 
-st.title("💎 AuraLoan - Gold Loan Management System")
+st.title("🏆 AuraLoan - Premium Gold Loan System")
 st.markdown("---")
 
 # ==========================================
@@ -285,7 +306,7 @@ elif choice == "👤 Party Master":
         with col2:
             occupation = st.text_input("തൊഴിൽ (Occupation)")
             qualification = st.text_input("യോഗ്യത (Qualification)")
-            address = st.text_area("වിലാസം (Address)")
+            address = st.text_area("വിലാസം (Address)")
             pincode = st.text_input("Pincode")
             pan = st.text_input("PAN Card Number")
             kyc_status = st.selectbox("KYC Status", ["Pending", "Verified", "Suspended"])
@@ -305,43 +326,65 @@ elif choice == "👤 Party Master":
                 st.error("Name and Mobile fields are required.")
 
 # ==========================================
-# MODULE: EDIT PARTY DETAILS
+# MODULE: EDIT & DELETE PARTY DETAILS
 # ==========================================
-elif choice == "✏️ Edit Party Details":
-    st.header("✏️ Edit Complete Party Profile Details")
+elif choice == "✏️ Edit/Delete Party Profile":
+    st.header("✏️ Profile Management Core (Edit / Delete Customer Accounts)")
     conn = get_db_connection()
     parties_df = pd.read_sql_query("SELECT * FROM parties", conn)
     
     if parties_df.empty:
         st.info("No customer data available.")
     else:
-        party_to_edit = st.selectbox("Select Party Profile to Update", parties_df['id'].tolist(), format_func=lambda x: parties_df[parties_df['id']==x]['name'].values[0])
+        party_to_edit = st.selectbox("Select Party Profile to Manage", parties_df['id'].tolist(), format_func=lambda x: f"ID: {x} | {parties_df[parties_df['id']==x]['name'].values[0]} ({parties_df[parties_df['id']==x]['kyc_status'].values[0]})")
         selected_row = parties_df[parties_df['id'] == party_to_edit].iloc[0]
         
-        with st.form("edit_party_form_main"):
-            col1, col2 = st.columns(2)
-            with col1:
-                edit_name = st.text_input("പേര് (Name)", value=selected_row['name'])
-                edit_guardian = st.text_input("പിതാവ്/ഭർത്താവിന്റെ പേര്", value=selected_row['guardian_name'])
-                edit_mobile = st.text_input("മൊബൈൽ നമ്പർ (Mobile)", value=selected_row['mobile'])
-                edit_whatsapp = st.text_input("WhatsApp Number", value=selected_row['whatsapp'])
-            with col2:
-                edit_occupation = st.text_input("തൊഴിൽ (Occupation)", value=selected_row['occupation'])
-                edit_qualification = st.text_input("യോഗ്യത (Qualification)", value=selected_row['qualification'])
-                edit_address = st.text_area("වിലാസം (Address)", value=selected_row['address'])
-                edit_pincode = st.text_input("Pincode", value=selected_row['pincode'])
-                edit_kyc = st.selectbox("KYC Status", ["Pending", "Verified", "Suspended"], index=["Pending", "Verified", "Suspended"].index(selected_row['kyc_status']))
+        tab_edit, tab_delete = st.tabs(["✏️ Edit Details", "❌ Delete Profile Permanently"])
+        
+        with tab_edit:
+            with st.form("edit_party_form_main"):
+                col1, col2 = st.columns(2)
+                with col1:
+                    edit_name = st.text_input("പേര് (Name)", value=selected_row['name'])
+                    edit_guardian = st.text_input("പിതാവ്/ഭർത്താവിന്റെ പേര്", value=selected_row['guardian_name'])
+                    edit_mobile = st.text_input("മൊബൈൽ നമ്പർ (Mobile)", value=selected_row['mobile'])
+                    edit_whatsapp = st.text_input("WhatsApp Number", value=selected_row['whatsapp'])
+                with col2:
+                    edit_occupation = st.text_input("തൊഴിൽ (Occupation)", value=selected_row['occupation'])
+                    edit_qualification = st.text_input("യോഗ്യത (Qualification)", value=selected_row['qualification'])
+                    edit_address = st.text_area("വിലാസം (Address)", value=selected_row['address'])
+                    edit_pincode = st.text_input("Pincode", value=selected_row['pincode'])
+                    edit_kyc = st.selectbox("KYC Status", ["Pending", "Verified", "Suspended"], index=["Pending", "Verified", "Suspended"].index(selected_row['kyc_status']))
+                
+                if st.form_submit_button("Save All Updates"):
+                    conn.execute("""
+                        UPDATE parties SET 
+                            name=?, guardian_name=?, mobile=?, whatsapp=?, 
+                            occupation=?, qualification=?, address=?, pincode=?, kyc_status=?
+                        WHERE id=?
+                    """, (edit_name, edit_guardian, edit_mobile, edit_whatsapp, edit_occupation, edit_qualification, edit_address, edit_pincode, edit_kyc, party_to_edit))
+                    conn.commit()
+                    st.success("All updates saved successfully.")
+                    st.rerun()
+                    
+        with tab_delete:
+            st.warning(f"⚠️ Warning: You are about to permanently delete the profile of **{selected_row['name']}**.")
+            st.error("This will delete the customer profile. Make sure there are no open loans attached to this party.")
             
-            if st.form_submit_button("Save All Updates"):
-                conn.execute("""
-                    UPDATE parties SET 
-                        name=?, guardian_name=?, mobile=?, whatsapp=?, 
-                        occupation=?, qualification=?, address=?, pincode=?, kyc_status=?
-                    WHERE id=?
-                """, (edit_name, edit_guardian, edit_mobile, edit_whatsapp, edit_occupation, edit_qualification, edit_address, edit_pincode, edit_kyc, party_to_edit))
-                conn.commit()
-                st.success("All updates saved successfully.")
-                st.rerun()
+            confirm_delete_text = st.text_input("Type 'DELETE' to confirm action:")
+            if st.button("Confirm Account Destruction"):
+                if confirm_delete_text == "DELETE":
+                    # Check for loans first
+                    has_loans = conn.execute("SELECT COUNT(*) FROM loans WHERE party_id = ?", (party_to_edit,)).fetchone()[0]
+                    if has_loans > 0:
+                        st.error("Cannot delete profile: This customer has existing active or closed gold loan files recorded.")
+                    else:
+                        conn.execute("DELETE FROM parties WHERE id = ?", (party_to_edit,))
+                        conn.commit()
+                        st.success("Customer profile deleted from logs successfully.")
+                        st.rerun()
+                else:
+                    st.error("Confirmation string does not match.")
     conn.close()
 
 # ==========================================
@@ -353,10 +396,12 @@ elif choice == "💰 Gold Loan Management":
     # 💸 SUB-MODULE 1: LOAN DISBURSEMENT MODULE
     if sub_choice == "💸 Loan Disbursement":
         st.header("💸 Gold Loan Formulation (Disbursement = Principal)")
-        parties = conn.execute("SELECT id, name FROM parties WHERE kyc_status='Verified'").fetchall()
+        
+        # FIXED QUERY CASE-INSENSITIVE OR PROPER SELECTION MATCHING 'Verified'
+        parties = conn.execute("SELECT id, name FROM parties WHERE kyc_status = 'Verified'").fetchall()
         
         if not parties:
-            st.warning("⚠️ No Verified Customers Available. Please verify a profile inside Party Master first.")
+            st.warning("⚠️ No Verified Customers Available. Please verify a profile inside Party Management first.")
         else:
             party_options = {p['id']: p['name'] for p in parties}
             
@@ -389,7 +434,6 @@ elif choice == "💰 Gold Loan Management":
                     max_eligible = appraised_val * 0.75
                     st.info(f"Regulatory 75% LTV Cap Limit: **₹{max_eligible:,.2f}**")
                     
-                    # Disbursement Amount is recorded directly as the core Principal field
                     principal = st.number_input("അനുവദിച്ച വായ്പ / Disbursement Amount (Principal) - ₹", min_value=0.0, value=40375.0)
                     interest_rate = st.number_input("പലിശ നിരക്ക് (Interest Rate % For Total Duration)", min_value=0.0, value=12.0)
                     duration = st.number_input("കാലാവധി (Tenure Duration - Months)", min_value=1, max_value=36, value=12)
@@ -400,7 +444,6 @@ elif choice == "💰 Gold Loan Management":
                     admin_fee = st.number_input("അഡ്മിൻ ഫീസ് (Admin Fee - ₹)", min_value=0.0, value=200.0)
                     doc_fee = st.number_input("ഡോക്യുമെന്റേഷൻ ഫീസ് (Documentation Fee - ₹)", min_value=0.0, value=200.0)
                     
-                    # SYNCED FORMULA LOGIC:
                     interest_amount = principal * (interest_rate / 100)
                     total_payable = principal + interest_amount
                     calculated_emi = total_payable / duration if duration > 0 else 0.0
@@ -667,17 +710,39 @@ elif choice == "📅 EMI Schedule":
         </div>
         """
         
-        st.download_button(label="📥 ഡൗൺലോഡ് & പ്രിന്റ് ഷെഡ്യൂൾ (Download Schedule Sheet)", data=printable_schedule_html, file_name=f"EMI_Schedule_Loan_{selected_sched}.html", mime="text/html")
+        st.download_button(label="📥 ഡൗൺലോഡ് & പ്രിന്റ് ഷെഡ్యూൾ (Download Schedule Sheet)", data=printable_schedule_html, file_name=f"EMI_Schedule_Loan_{selected_sched}.html", mime="text/html")
     conn.close()
 
 # ==========================================
-# MODULE: BACKUP & RESTORE DATA
+# MODULE: BACKUP, RESTORE & DATA UPLOADER
 # ==========================================
-elif choice == "💾 Backup & Restore":
-    st.header("💾 Storage Engine Maintenance")
+elif choice == "💾 Backup, Restore & Upload":
+    st.header("💾 Storage Engine Maintenance & Data Integration Tools")
     conn = get_db_connection()
-    col1, col2 = st.columns(2)
     
+    # Data Import / Upload Segment
+    st.subheader("📥 Upload Existing Datasets (CSV Imports)")
+    target_upload_table = st.selectbox("Select Destination Database Table to Populate:", ["parties", "loans"])
+    uploaded_csv = st.file_uploader(f"Choose a CSV file containing '{target_upload_table}' row records", type=["csv"])
+    
+    if uploaded_csv is not None:
+        try:
+            input_df = pd.read_csv(uploaded_csv)
+            st.write("🔍 Preview of data to import:")
+            st.dataframe(input_df.head(5))
+            
+            if st.button("Commit Data Feed to SQLite Engine"):
+                input_df.to_sql(target_upload_table, conn, if_exists='append', index=False)
+                st.success(f"Successfully integrated {len(input_df)} rows into the local `{target_upload_table}` dataset.")
+                st.rerun()
+        except Exception as err:
+            st.error(f"Failed parsing file formatting layout context. Internal error: {err}")
+            
+    st.markdown("---")
+    
+    # Export Segment
+    st.subheader("📤 Local Backup Operations")
+    col1, col2 = st.columns(2)
     with col1:
         st.markdown("#### Party Registries Matrix")
         df_p = pd.read_sql_query("SELECT * FROM parties", conn)
@@ -700,8 +765,6 @@ elif choice == "💾 Backup & Restore":
         mime="application/octet-stream"
     )
     conn.close()
-
-
 
 
 

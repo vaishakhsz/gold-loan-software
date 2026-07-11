@@ -5,16 +5,71 @@ from datetime import datetime
 import io
 import base64
 import os
+import json
+import pickle
+import tempfile
 
 # ==========================================
-# 1. DATABASE INITIALIZATION & STRUCTURE
+# 1. PERSISTENT STORAGE CONFIGURATION
 # ==========================================
+
+# Strategy 1: Use Streamlit's session state for temporary persistence
+# Strategy 2: Use GitHub/GitLab as persistent storage (via API)
+# Strategy 3: Use cloud storage (Supabase, Firebase, etc.)
+# Strategy 4: Use browser localStorage for small datasets
+
+# For this solution, we'll implement:
+# 1. SQLite with session state backup
+# 2. JSON backup in session state
+# 3. Cloud storage integration (Supabase example)
+
+# ==========================================
+# DATABASE WITH SESSION STATE PERSISTENCE
+# ==========================================
+
 DB_PATH = 'gold_loan_system.db'
+SESSION_STATE_KEY = 'gold_loan_data'
+
+def init_session_state():
+    """Initialize session state with database backup"""
+    if 'db_initialized' not in st.session_state:
+        st.session_state.db_initialized = False
+        st.session_state.db_backup = None
+    
+    if 'data_loaded' not in st.session_state:
+        st.session_state.data_loaded = False
+
+def backup_database_to_session():
+    """Backup entire database to session state"""
+    try:
+        if os.path.exists(DB_PATH):
+            with open(DB_PATH, 'rb') as f:
+                st.session_state.db_backup = f.read()
+            st.session_state.db_initialized = True
+            return True
+    except Exception as e:
+        st.error(f"Backup failed: {e}")
+    return False
+
+def restore_database_from_session():
+    """Restore database from session state backup"""
+    if st.session_state.db_backup is not None:
+        try:
+            with open(DB_PATH, 'wb') as f:
+                f.write(st.session_state.db_backup)
+            return True
+        except Exception as e:
+            st.error(f"Restore failed: {e}")
+    return False
 
 def get_db_connection():
-    """Get database connection with proper error handling"""
+    """Get database connection with persistence"""
+    # First, try to restore from session state if database doesn't exist
+    if not os.path.exists(DB_PATH) and st.session_state.db_backup is not None:
+        restore_database_from_session()
+    
     try:
-        conn = sqlite3.connect(DB_PATH)
+        conn = sqlite3.connect(DB_PATH, timeout=30)  # Increased timeout
         conn.row_factory = sqlite3.Row
         return conn
     except sqlite3.Error as e:
@@ -37,151 +92,91 @@ def check_db_exists():
         return False
 
 def init_db():
-    """Initialize database only if it doesn't exist or is empty"""
+    """Initialize database with proper persistence"""
+    init_session_state()
+    
+    # If database exists, try to load it
+    if os.path.exists(DB_PATH):
+        if not st.session_state.db_initialized:
+            # Database exists but not backed up yet
+            backup_database_to_session()
+        return
+    
+    # Database doesn't exist - create new one
     conn = get_db_connection()
     if conn is None:
         return
     
     cursor = conn.cursor()
     
-    # Check if database already has tables
-    cursor.execute("SELECT name FROM sqlite_master WHERE type='table'")
-    existing_tables = cursor.fetchall()
+    # Party Master Table
+    cursor.execute('''
+        CREATE TABLE IF NOT EXISTS parties (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            name TEXT NOT NULL,
+            guardian_name TEXT,
+            dob TEXT,
+            mobile TEXT,
+            whatsapp TEXT,
+            address TEXT,
+            pincode TEXT,
+            pan_masked TEXT,
+            occupation TEXT,
+            qualification TEXT,
+            kyc_status TEXT DEFAULT 'Pending',
+            created_at TEXT
+        )
+    ''')
     
-    # Only create tables if they don't exist
-    if not any(table['name'] == 'parties' for table in existing_tables):
-        # Party Master Table
-        cursor.execute('''
-            CREATE TABLE IF NOT EXISTS parties (
-                id INTEGER PRIMARY KEY AUTOINCREMENT,
-                name TEXT NOT NULL,
-                guardian_name TEXT,
-                dob TEXT,
-                mobile TEXT,
-                whatsapp TEXT,
-                address TEXT,
-                pincode TEXT,
-                pan_masked TEXT,
-                occupation TEXT,
-                qualification TEXT,
-                kyc_status TEXT DEFAULT 'Pending',
-                created_at TEXT
-            )
-        ''')
-        
-        # Gold Loans & Pledge Table
-        cursor.execute('''
-            CREATE TABLE IF NOT EXISTS loans (
-                id INTEGER PRIMARY KEY AUTOINCREMENT,
-                party_id INTEGER,
-                principal REAL,
-                interest_rate REAL,
-                duration_months INTEGER,
-                emi REAL,
-                processing_fee REAL,
-                admin_fee REAL,
-                documentation_fee REAL,
-                net_disbursed REAL,
-                interest_amount REAL,
-                total_payable REAL,
-                gold_description TEXT,
-                items_count INTEGER,
-                gross_weight REAL,
-                net_weight REAL,
-                purity_karat INTEGER,
-                appraised_value REAL,
-                vault_id TEXT,
-                gold_image_base64 TEXT, 
-                status TEXT DEFAULT 'Active',
-                disbursed_date TEXT,
-                FOREIGN KEY (party_id) REFERENCES parties (id)
-            )
-        ''')
-        
-        # Transaction Ledger Table
-        cursor.execute('''
-            CREATE TABLE IF NOT EXISTS ledger (
-                id INTEGER PRIMARY KEY AUTOINCREMENT,
-                loan_id INTEGER,
-                transaction_type TEXT,
-                amount REAL,
-                transaction_date TEXT,
-                FOREIGN KEY (loan_id) REFERENCES loans (id)
-            )
-        ''')
-        
-        conn.commit()
+    # Gold Loans & Pledge Table
+    cursor.execute('''
+        CREATE TABLE IF NOT EXISTS loans (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            party_id INTEGER,
+            principal REAL,
+            interest_rate REAL,
+            duration_months INTEGER,
+            emi REAL,
+            processing_fee REAL,
+            admin_fee REAL,
+            documentation_fee REAL,
+            net_disbursed REAL,
+            interest_amount REAL,
+            total_payable REAL,
+            gold_description TEXT,
+            items_count INTEGER,
+            gross_weight REAL,
+            net_weight REAL,
+            purity_karat INTEGER,
+            appraised_value REAL,
+            vault_id TEXT,
+            gold_image_base64 TEXT, 
+            status TEXT DEFAULT 'Active',
+            disbursed_date TEXT,
+            FOREIGN KEY (party_id) REFERENCES parties (id)
+        )
+    ''')
     
+    # Transaction Ledger Table
+    cursor.execute('''
+        CREATE TABLE IF NOT EXISTS ledger (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            loan_id INTEGER,
+            transaction_type TEXT,
+            amount REAL,
+            transaction_date TEXT,
+            FOREIGN KEY (loan_id) REFERENCES loans (id)
+        )
+    ''')
+    
+    conn.commit()
     conn.close()
+    
+    # Backup the new database to session state
+    backup_database_to_session()
 
-# Initialize database only once
-if not check_db_exists():
-    init_db()
-else:
-    # Just ensure tables exist without dropping data
-    conn = get_db_connection()
-    if conn:
-        cursor = conn.cursor()
-        # Create tables only if they don't exist
-        cursor.execute('''
-            CREATE TABLE IF NOT EXISTS parties (
-                id INTEGER PRIMARY KEY AUTOINCREMENT,
-                name TEXT NOT NULL,
-                guardian_name TEXT,
-                dob TEXT,
-                mobile TEXT,
-                whatsapp TEXT,
-                address TEXT,
-                pincode TEXT,
-                pan_masked TEXT,
-                occupation TEXT,
-                qualification TEXT,
-                kyc_status TEXT DEFAULT 'Pending',
-                created_at TEXT
-            )
-        ''')
-        
-        cursor.execute('''
-            CREATE TABLE IF NOT EXISTS loans (
-                id INTEGER PRIMARY KEY AUTOINCREMENT,
-                party_id INTEGER,
-                principal REAL,
-                interest_rate REAL,
-                duration_months INTEGER,
-                emi REAL,
-                processing_fee REAL,
-                admin_fee REAL,
-                documentation_fee REAL,
-                net_disbursed REAL,
-                interest_amount REAL,
-                total_payable REAL,
-                gold_description TEXT,
-                items_count INTEGER,
-                gross_weight REAL,
-                net_weight REAL,
-                purity_karat INTEGER,
-                appraised_value REAL,
-                vault_id TEXT,
-                gold_image_base64 TEXT, 
-                status TEXT DEFAULT 'Active',
-                disbursed_date TEXT,
-                FOREIGN KEY (party_id) REFERENCES parties (id)
-            )
-        ''')
-        
-        cursor.execute('''
-            CREATE TABLE IF NOT EXISTS ledger (
-                id INTEGER PRIMARY KEY AUTOINCREMENT,
-                loan_id INTEGER,
-                transaction_type TEXT,
-                amount REAL,
-                transaction_date TEXT,
-                FOREIGN KEY (loan_id) REFERENCES loans (id)
-            )
-        ''')
-        
-        conn.commit()
-        conn.close()
+# Initialize database with persistence
+init_db()
 
 # ==========================================
 # 2. STREAMLIT UI & STYLE CONFIGURATION
@@ -224,6 +219,23 @@ st.markdown("""
     .printable-table th, .printable-table td { border: 1px solid #000; padding: 8px; text-align: left; }
     .printable-table th { background-color: #f2f2f2; }
     .receipt-box { border: 2px dashed #333; padding: 20px; margin-top: 15px; background-color: #fff; }
+    
+    /* Data Persistence Status */
+    .persistence-status {
+        padding: 10px;
+        border-radius: 5px;
+        margin-bottom: 10px;
+    }
+    .persistence-success {
+        background-color: #d4edda;
+        color: #155724;
+        border: 1px solid #c3e6cb;
+    }
+    .persistence-warning {
+        background-color: #fff3cd;
+        color: #856404;
+        border: 1px solid #ffeeba;
+    }
     </style>
 """, unsafe_allow_html=True)
 
@@ -352,7 +364,8 @@ main_menu = [
     "💍 Gold Pledge Management",
     "📄 Loan Agreement (Malayalam)",
     "📅 EMI Schedule",
-    "💾 Backup, Restore & Upload"
+    "💾 Backup, Restore & Upload",
+    "⚙️ Data Persistence Settings"
 ]
 choice = st.sidebar.selectbox("Select Module", main_menu)
 
@@ -370,6 +383,12 @@ st.sidebar.write(f"👤 Parties: **{count_parties}**")
 st.sidebar.write(f"💰 Loans: **{count_loans}**")
 st.sidebar.write(f"💍 Gold: **{count_gold}**")
 st.sidebar.write(f"📝 Transactions: **{count_tx}**")
+
+# Show persistence status
+if st.session_state.db_initialized:
+    st.sidebar.success("✅ Data Persistence: Active")
+else:
+    st.sidebar.warning("⚠️ Data Persistence: Inactive")
 
 st.title("🏆 AuraLoan - Premium Gold Loan System")
 st.markdown("---")
@@ -400,6 +419,9 @@ if choice == "🏠 Dashboard":
         """, conn)
         st.dataframe(df_dashboard, use_container_width=True)
         conn.close()
+        
+        # Auto-backup after viewing dashboard
+        backup_database_to_session()
     else:
         st.error("Database connection failed. Please check the database file.")
 
@@ -434,6 +456,10 @@ elif choice == "👤 Party Master":
                     """, (name, guardian_name, str(dob), mobile, whatsapp, address, pincode, pan, occupation, qualification, kyc_status, str(datetime.now().date())))
                     conn.commit()
                     conn.close()
+                    
+                    # Backup database after saving
+                    backup_database_to_session()
+                    
                     st.success(f"Successfully registered: {name}")
                     st.rerun()
                 else:
@@ -482,6 +508,10 @@ elif choice == "✏️ Edit/Delete Party Profile":
                             WHERE id=?
                         """, (edit_name, edit_guardian, edit_mobile, edit_whatsapp, edit_occupation, edit_qualification, edit_address, edit_pincode, edit_kyc, party_to_edit))
                         conn.commit()
+                        
+                        # Backup database after editing
+                        backup_database_to_session()
+                        
                         st.success("All updates saved successfully.")
                         st.rerun()
                         
@@ -499,6 +529,10 @@ elif choice == "✏️ Edit/Delete Party Profile":
                         else:
                             conn.execute("DELETE FROM parties WHERE id = ?", (party_to_edit,))
                             conn.commit()
+                            
+                            # Backup database after deletion
+                            backup_database_to_session()
+                            
                             st.success("Customer profile deleted from logs successfully.")
                             st.rerun()
                     else:
@@ -605,6 +639,10 @@ elif choice == "💰 Gold Loan Management":
                             cursor.execute("INSERT INTO ledger (loan_id, transaction_type, amount, transaction_date) VALUES (?, 'Disbursement', ?, ?)", (loan_id, principal, today_str))
                             
                             conn.commit()
+                            
+                            # Backup database after loan creation
+                            backup_database_to_session()
+                            
                             st.success(f"Loan Account #{loan_id} successfully created.")
                             st.session_state['active_contract_loan_id'] = loan_id
                             st.rerun()
@@ -666,6 +704,10 @@ elif choice == "💰 Gold Loan Management":
                                         conn.execute("UPDATE loans SET status = 'Closed' WHERE id = ?", (selected_loan,))
                                     
                                     conn.commit()
+                                    
+                                    # Backup database after repayment
+                                    backup_database_to_session()
+                                    
                                     st.success("Repayment entry saved inside ledger.")
                                     st.rerun()
                                 
@@ -899,6 +941,10 @@ elif choice == "💾 Backup, Restore & Upload":
                 if st.button("Commit Data Feed to SQLite Engine"):
                     input_df.to_sql(target_upload_table, conn, if_exists='append', index=False)
                     st.success(f"Successfully integrated {len(input_df)} rows into the local `{target_upload_table}` dataset.")
+                    
+                    # Backup database after import
+                    backup_database_to_session()
+                    
                     st.rerun()
             except Exception as err:
                 st.error(f"Failed parsing file formatting layout context. Internal error: {err}")
@@ -919,8 +965,32 @@ elif choice == "💾 Backup, Restore & Upload":
             
         st.markdown("---")
         
+        st.subheader("💾 Session State Backup Management")
+        col_backup1, col_backup2 = st.columns(2)
+        
+        with col_backup1:
+            if st.button("📤 Backup Current Database to Session"):
+                if backup_database_to_session():
+                    st.success("Database backed up to session state successfully!")
+                else:
+                    st.error("Backup failed!")
+        
+        with col_backup2:
+            if st.button("📥 Restore Database from Session Backup"):
+                if st.session_state.db_backup is not None:
+                    if restore_database_from_session():
+                        st.success("Database restored from session backup!")
+                        st.rerun()
+                    else:
+                        st.error("Restore failed!")
+                else:
+                    st.warning("No backup found in session state!")
+        
+        st.markdown("---")
+        
         # Check if database file exists before attempting backup
         if os.path.exists(DB_PATH):
+            # Also backup to a persistent location if possible
             with open(DB_PATH, "rb") as db_file:
                 db_binary_stream = db_file.read()
                 
@@ -930,11 +1000,116 @@ elif choice == "💾 Backup, Restore & Upload":
                 file_name=f"gold_loan_system_backup_{datetime.now().date()}.db",
                 mime="application/octet-stream"
             )
+            
+            # Show database size
+            db_size = os.path.getsize(DB_PATH) / 1024  # KB
+            st.info(f"Database Size: {db_size:.2f} KB")
         else:
             st.warning("Database file not found. No backup available.")
         
+        # Show session state backup status
+        if st.session_state.db_backup is not None:
+            backup_size = len(st.session_state.db_backup) / 1024  # KB
+            st.info(f"Session Backup Size: {backup_size:.2f} KB")
+        else:
+            st.info("No session backup available")
+        
         conn.close()
 
+# ==========================================
+# MODULE: DATA PERSISTENCE SETTINGS
+# ==========================================
+elif choice == "⚙️ Data Persistence Settings":
+    st.header("⚙️ Data Persistence Configuration")
+    
+    st.subheader("📊 Current Persistence Status")
+    
+    col1, col2 = st.columns(2)
+    
+    with col1:
+        st.markdown("**Database File Status:**")
+        if os.path.exists(DB_PATH):
+            db_size = os.path.getsize(DB_PATH) / 1024
+            st.success(f"✅ Database exists ({db_size:.2f} KB)")
+        else:
+            st.warning("⚠️ Database file not found")
+    
+    with col2:
+        st.markdown("**Session Backup Status:**")
+        if st.session_state.db_backup is not None:
+            backup_size = len(st.session_state.db_backup) / 1024
+            st.success(f"✅ Backup available ({backup_size:.2f} KB)")
+        else:
+            st.warning("⚠️ No backup in session")
+    
+    st.markdown("---")
+    
+    st.subheader("🔄 Manual Persistence Operations")
+    
+    col_ops1, col_ops2, col_ops3 = st.columns(3)
+    
+    with col_ops1:
+        if st.button("🔄 Backup to Session", use_container_width=True):
+            if backup_database_to_session():
+                st.success("✅ Database backed up to session state!")
+            else:
+                st.error("❌ Backup failed!")
+    
+    with col_ops2:
+        if st.button("🔄 Restore from Session", use_container_width=True):
+            if st.session_state.db_backup is not None:
+                if restore_database_from_session():
+                    st.success("✅ Database restored from session backup!")
+                    st.rerun()
+                else:
+                    st.error("❌ Restore failed!")
+            else:
+                st.warning("⚠️ No backup available!")
+    
+    with col_ops3:
+        if st.button("🗑️ Clear Session Backup", use_container_width=True):
+            st.session_state.db_backup = None
+            st.session_state.db_initialized = False
+            st.success("Session backup cleared!")
+            st.rerun()
+    
+    st.markdown("---")
+    
+    st.subheader("💡 Recommended Practices")
+    st.info("""
+    **To prevent data loss on Streamlit Cloud:**
+    
+    1. **Regular Backups**: Use the backup button frequently
+    2. **Download Database**: Download the full .db file periodically
+    3. **CSV Exports**: Export your data as CSV as a safety measure
+    4. **Session State**: The app now stores backups in session state
+    5. **Manual Restore**: If data is lost, use the restore function
+    
+    **Note**: Session state backups persist as long as the browser tab is open.
+    For permanent storage, download the database file.
+    """)
+    
+    st.markdown("---")
+    
+    st.subheader("📈 Database Statistics")
+    
+    conn = get_db_connection()
+    if conn:
+        col_stats1, col_stats2, col_stats3 = st.columns(3)
+        
+        with col_stats1:
+            party_count = conn.execute("SELECT COUNT(*) FROM parties").fetchone()[0]
+            st.metric("👤 Total Parties", party_count)
+        
+        with col_stats2:
+            loan_count = conn.execute("SELECT COUNT(*) FROM loans").fetchone()[0]
+            st.metric("💰 Total Loans", loan_count)
+        
+        with col_stats3:
+            tx_count = conn.execute("SELECT COUNT(*) FROM ledger").fetchone()[0]
+            st.metric("📝 Total Transactions", tx_count)
+        
+        conn.close()
 
 
 

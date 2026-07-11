@@ -3,20 +3,11 @@ import pandas as pd
 from datetime import datetime
 import base64
 import time
-import json
 import os
-import hashlib
 
 # ==========================================
-# 1. GOOGLE SHEETS CONNECTION WITH FALLBACK
+# 1. CONFIGURATION & COLUMN DEFINITIONS
 # ==========================================
-
-# Try to import GSheetsConnection, fallback to CSV if not available
-try:
-    from st_gsheets_connection import GSheetsConnection
-    GSHEETS_AVAILABLE = True
-except ImportError:
-    GSHEETS_AVAILABLE = False
 
 # Define column structures
 PARTIES_COLUMNS = [
@@ -39,39 +30,84 @@ LEDGER_COLUMNS = [
 ]
 
 # ==========================================
-# 2. CSV FALLBACK SYSTEM
+# 2. CSV DATA HANDLING (NO GOOGLE SHEETS)
 # ==========================================
+
+def ensure_csv_exists(filename, columns):
+    """Ensure CSV file exists with proper columns"""
+    try:
+        if not os.path.exists(filename):
+            # Create file with proper columns
+            df = pd.DataFrame(columns=columns)
+            df.to_csv(filename, index=False)
+            print(f"Created {filename} with columns")
+            return True
+        else:
+            # Check if file has proper columns
+            df = pd.read_csv(filename)
+            if df.empty:
+                # File exists but empty, add columns
+                df = pd.DataFrame(columns=columns)
+                df.to_csv(filename, index=False)
+                print(f"Added columns to {filename}")
+                return True
+            
+            # Check if all columns exist
+            missing_cols = [col for col in columns if col not in df.columns]
+            if missing_cols:
+                for col in missing_cols:
+                    df[col] = None
+                df.to_csv(filename, index=False)
+                print(f"Added missing columns to {filename}")
+            return True
+    except Exception as e:
+        print(f"Error ensuring {filename}: {e}")
+        # Create new file with columns
+        try:
+            df = pd.DataFrame(columns=columns)
+            df.to_csv(filename, index=False)
+            return True
+        except:
+            return False
 
 def load_csv_data(filename, columns):
     """Load data from CSV file - ALWAYS returns a DataFrame"""
     try:
-        if os.path.exists(filename):
-            df = pd.read_csv(filename)
-            # If file is empty, create DataFrame with columns
-            if df.empty:
-                return pd.DataFrame(columns=columns)
-            # Ensure all columns exist
-            for col in columns:
-                if col not in df.columns:
-                    df[col] = None
-            return df
-        else:
-            # File doesn't exist, create empty DataFrame
+        # Ensure file exists with proper columns
+        ensure_csv_exists(filename, columns)
+        
+        # Read the file
+        df = pd.read_csv(filename)
+        
+        # If empty, return DataFrame with columns
+        if df.empty:
             return pd.DataFrame(columns=columns)
+        
+        # Ensure all columns exist
+        for col in columns:
+            if col not in df.columns:
+                df[col] = None
+        
+        # Convert id to int if exists
+        if 'id' in df.columns:
+            df['id'] = pd.to_numeric(df['id'], errors='coerce').fillna(0).astype(int)
+        
+        return df
     except Exception as e:
         print(f"Error loading {filename}: {e}")
+        # Return empty DataFrame with columns
         return pd.DataFrame(columns=columns)
 
 def save_csv_data(filename, df):
     """Save data to CSV file"""
     try:
+        # Ensure df is a DataFrame
+        if df is None:
+            df = pd.DataFrame(columns=columns)
+        
         # Create backups directory
         if not os.path.exists('backups'):
             os.makedirs('backups')
-        
-        # Ensure df is a DataFrame
-        if df is None:
-            return False
         
         # Save to main file
         df.to_csv(filename, index=False)
@@ -85,137 +121,7 @@ def save_csv_data(filename, df):
         return False
 
 # ==========================================
-# 3. GOOGLE SHEETS HELPERS
-# ==========================================
-
-def get_sheets_connection():
-    """Get connection to Google Sheets with retry logic"""
-    if not GSHEETS_AVAILABLE:
-        return None
-    
-    max_retries = 3
-    retry_delay = 2
-    
-    for attempt in range(max_retries):
-        try:
-            conn = st.connection("gsheets", type=GSheetsConnection)
-            return conn
-        except Exception as e:
-            if attempt < max_retries - 1:
-                time.sleep(retry_delay)
-                continue
-            else:
-                print(f"Failed to connect to Google Sheets: {e}")
-                return None
-    return None
-
-def init_sheets():
-    """Initialize all sheets with proper columns"""
-    if not GSHEETS_AVAILABLE:
-        return False
-    
-    conn = get_sheets_connection()
-    if conn is None:
-        return False
-    
-    try:
-        # Try to create sheets if they don't exist
-        for sheet_name, columns in [("parties", PARTIES_COLUMNS), 
-                                    ("loans", LOANS_COLUMNS), 
-                                    ("ledger", LEDGER_COLUMNS)]:
-            try:
-                # Check if sheet exists
-                df = conn.read(worksheet=sheet_name, ttl=0)
-                if df.empty or not all(col in df.columns for col in columns):
-                    df = pd.DataFrame(columns=columns)
-                    conn.update(worksheet=sheet_name, data=df)
-            except:
-                # Sheet doesn't exist, create it
-                df = pd.DataFrame(columns=columns)
-                conn.update(worksheet=sheet_name, data=df)
-        return True
-    except Exception as e:
-        print(f"Error initializing sheets: {e}")
-        return False
-
-# ==========================================
-# 4. DATA OPERATIONS WITH FALLBACK
-# ==========================================
-
-def get_data_from_sheets_or_csv(sheet_name, columns, csv_filename):
-    """Get data from Google Sheets or fallback to CSV - ALWAYS returns DataFrame"""
-    try:
-        # Try Google Sheets first
-        if GSHEETS_AVAILABLE:
-            try:
-                conn = get_sheets_connection()
-                if conn is not None:
-                    df = conn.read(worksheet=sheet_name, ttl=0)
-                    
-                    # If empty or None, create DataFrame with columns
-                    if df is None or df.empty:
-                        df = pd.DataFrame(columns=columns)
-                    else:
-                        # Ensure all columns exist
-                        for col in columns:
-                            if col not in df.columns:
-                                df[col] = None
-                        
-                        # Convert id to int if exists
-                        if 'id' in df.columns:
-                            df['id'] = pd.to_numeric(df['id'], errors='coerce').fillna(0).astype(int)
-                    
-                    # Cache in session state
-                    cache_key = f"{sheet_name}_cache"
-                    st.session_state[cache_key] = df
-                    
-                    # Save as CSV backup
-                    save_csv_data(csv_filename, df)
-                    
-                    return df
-            except Exception as e:
-                print(f"Google Sheets error for {sheet_name}: {e}")
-        
-        # Fallback to CSV
-        df = load_csv_data(csv_filename, columns)
-        return df
-    except Exception as e:
-        print(f"Error in get_data_from_sheets_or_csv: {e}")
-        return pd.DataFrame(columns=columns)
-
-def update_sheet_or_csv(sheet_name, data, csv_filename):
-    """Update Google Sheets or fallback to CSV"""
-    try:
-        # Ensure data is a DataFrame
-        if data is None:
-            return False
-        
-        # Try Google Sheets
-        if GSHEETS_AVAILABLE:
-            try:
-                conn = get_sheets_connection()
-                if conn is not None:
-                    conn.update(worksheet=sheet_name, data=data)
-                    
-                    # Clear cache after update
-                    cache_key = f"{sheet_name}_cache"
-                    if cache_key in st.session_state:
-                        del st.session_state[cache_key]
-                    
-                    # Save as CSV backup
-                    save_csv_data(csv_filename, data)
-                    return True
-            except Exception as e:
-                print(f"Google Sheets update error for {sheet_name}: {e}")
-        
-        # Fallback to CSV
-        return save_csv_data(csv_filename, data)
-    except Exception as e:
-        print(f"Error in update_sheet_or_csv: {e}")
-        return False
-
-# ==========================================
-# 5. DATA ACCESS FUNCTIONS (ALWAYS RETURNS DATAFRAME)
+# 3. DATA ACCESS FUNCTIONS
 # ==========================================
 
 def get_parties(force_reload=False):
@@ -229,12 +135,8 @@ def get_parties(force_reload=False):
             if cached is not None and isinstance(cached, pd.DataFrame):
                 return cached
         
-        # Get data
-        df = get_data_from_sheets_or_csv("parties", PARTIES_COLUMNS, "parties.csv")
-        
-        # Ensure it's a DataFrame
-        if df is None:
-            df = pd.DataFrame(columns=PARTIES_COLUMNS)
+        # Load data
+        df = load_csv_data("parties.csv", PARTIES_COLUMNS)
         
         # Cache it
         st.session_state[cache_key] = df
@@ -254,12 +156,8 @@ def get_loans(force_reload=False):
             if cached is not None and isinstance(cached, pd.DataFrame):
                 return cached
         
-        # Get data
-        df = get_data_from_sheets_or_csv("loans", LOANS_COLUMNS, "loans.csv")
-        
-        # Ensure it's a DataFrame
-        if df is None:
-            df = pd.DataFrame(columns=LOANS_COLUMNS)
+        # Load data
+        df = load_csv_data("loans.csv", LOANS_COLUMNS)
         
         # Cache it
         st.session_state[cache_key] = df
@@ -279,12 +177,8 @@ def get_ledger(force_reload=False):
             if cached is not None and isinstance(cached, pd.DataFrame):
                 return cached
         
-        # Get data
-        df = get_data_from_sheets_or_csv("ledger", LEDGER_COLUMNS, "ledger.csv")
-        
-        # Ensure it's a DataFrame
-        if df is None:
-            df = pd.DataFrame(columns=LEDGER_COLUMNS)
+        # Load data
+        df = load_csv_data("ledger.csv", LEDGER_COLUMNS)
         
         # Cache it
         st.session_state[cache_key] = df
@@ -306,7 +200,7 @@ def get_next_id(df, id_column='id'):
         return 1
 
 # ==========================================
-# 6. DATA MANIPULATION FUNCTIONS
+# 4. DATA MANIPULATION FUNCTIONS
 # ==========================================
 
 def add_party(data):
@@ -338,7 +232,7 @@ def add_party(data):
         df = pd.concat([df, pd.DataFrame([new_row])], ignore_index=True)
         df['id'] = df['id'].astype(int)
         
-        if update_sheet_or_csv("parties", df, "parties.csv"):
+        if save_csv_data("parties.csv", df):
             st.session_state.pop('parties_cache', None)
             return new_id
         return None
@@ -383,7 +277,7 @@ def add_loan(data):
         df = pd.concat([df, pd.DataFrame([new_row])], ignore_index=True)
         df['id'] = df['id'].astype(int)
         
-        if update_sheet_or_csv("loans", df, "loans.csv"):
+        if save_csv_data("loans.csv", df):
             # Add to ledger
             add_ledger_entry({
                 'loan_id': new_id,
@@ -418,7 +312,7 @@ def add_ledger_entry(data):
         df = pd.concat([df, pd.DataFrame([new_row])], ignore_index=True)
         df['id'] = df['id'].astype(int)
         
-        if update_sheet_or_csv("ledger", df, "ledger.csv"):
+        if save_csv_data("ledger.csv", df):
             st.session_state.pop('ledger_cache', None)
             return new_id
         return None
@@ -441,7 +335,7 @@ def update_party(party_id, data):
             if key in df.columns:
                 df.loc[mask, key] = value
         
-        if update_sheet_or_csv("parties", df, "parties.csv"):
+        if save_csv_data("parties.csv", df):
             st.session_state.pop('parties_cache', None)
             return True
         return False
@@ -458,7 +352,7 @@ def delete_party(party_id):
         
         df = df[df['id'] != party_id]
         
-        if update_sheet_or_csv("parties", df, "parties.csv"):
+        if save_csv_data("parties.csv", df):
             st.session_state.pop('parties_cache', None)
             return True
         return False
@@ -479,7 +373,7 @@ def update_loan_status(loan_id, status):
         
         df.loc[mask, 'status'] = status
         
-        if update_sheet_or_csv("loans", df, "loans.csv"):
+        if save_csv_data("loans.csv", df):
             st.session_state.pop('loans_cache', None)
             return True
         return False
@@ -501,7 +395,7 @@ def force_reload_all():
     st.rerun()
 
 # ==========================================
-# 7. HTML GENERATORS
+# 5. HTML GENERATORS
 # ==========================================
 
 def generate_agreement_html(loan_row, party_row):
@@ -599,6 +493,51 @@ def generate_fee_receipt_html(loan_row, party_row):
     """
 
 # ==========================================
+# 6. INITIALIZATION
+# ==========================================
+
+# Ensure CSV files exist with proper columns
+ensure_csv_exists("parties.csv", PARTIES_COLUMNS)
+ensure_csv_exists("loans.csv", LOANS_COLUMNS)
+ensure_csv_exists("ledger.csv", LEDGER_COLUMNS)
+
+# Initialize session state
+if 'parties_cache' not in st.session_state:
+    st.session_state['parties_cache'] = None
+if 'loans_cache' not in st.session_state:
+    st.session_state['loans_cache'] = None
+if 'ledger_cache' not in st.session_state:
+    st.session_state['ledger_cache'] = None
+
+# Load initial data
+get_parties()
+get_loans()
+get_ledger()
+
+# ==========================================
+# 7. SYSTEM STATS
+# ==========================================
+
+def get_system_stats():
+    """Get system statistics"""
+    try:
+        df_parties = get_parties()
+        df_loans = get_loans()
+        df_ledger = get_ledger()
+        
+        count_parties = len(df_parties) if df_parties is not None and not df_parties.empty else 0
+        count_loans = len(df_loans) if df_loans is not None and not df_loans.empty else 0
+        count_gold = 0
+        if df_loans is not None and not df_loans.empty and 'status' in df_loans.columns:
+            count_gold = len(df_loans[df_loans['status'] == 'Active'])
+        count_tx = len(df_ledger) if df_ledger is not None and not df_ledger.empty else 0
+        
+        return count_parties, count_loans, count_gold, count_tx
+    except Exception as e:
+        print(f"Error in get_system_stats: {e}")
+        return 0, 0, 0, 0
+
+# ==========================================
 # 8. STREAMLIT UI SETUP
 # ==========================================
 
@@ -619,58 +558,10 @@ st.markdown("""
     </style>
 """, unsafe_allow_html=True)
 
-# ==========================================
-# 9. INITIALIZATION
-# ==========================================
-
-# Initialize session state for caching
-if 'parties_cache' not in st.session_state:
-    st.session_state['parties_cache'] = None
-if 'loans_cache' not in st.session_state:
-    st.session_state['loans_cache'] = None
-if 'ledger_cache' not in st.session_state:
-    st.session_state['ledger_cache'] = None
-if 'init_done' not in st.session_state:
-    st.session_state['init_done'] = False
-
-# Initialize sheets if Google Sheets available
-if not st.session_state['init_done']:
-    if GSHEETS_AVAILABLE:
-        with st.spinner("Initializing Google Sheets connection..."):
-            if init_sheets():
-                st.session_state['init_done'] = True
-            else:
-                st.session_state['init_done'] = True
-    else:
-        st.session_state['init_done'] = True
-
-# ==========================================
-# 10. SYSTEM STATS
-# ==========================================
-
-def get_system_stats():
-    """Get system statistics - ALWAYS returns numbers"""
-    try:
-        df_parties = get_parties()
-        df_loans = get_loans()
-        df_ledger = get_ledger()
-        
-        count_parties = len(df_parties) if df_parties is not None and not df_parties.empty else 0
-        count_loans = len(df_loans) if df_loans is not None and not df_loans.empty else 0
-        count_gold = 0
-        if df_loans is not None and not df_loans.empty and 'status' in df_loans.columns:
-            count_gold = len(df_loans[df_loans['status'] == 'Active'])
-        count_tx = len(df_ledger) if df_ledger is not None and not df_ledger.empty else 0
-        
-        return count_parties, count_loans, count_gold, count_tx
-    except Exception as e:
-        print(f"Error in get_system_stats: {e}")
-        return 0, 0, 0, 0
-
 count_parties, count_loans, count_gold, count_tx = get_system_stats()
 
 # ==========================================
-# 11. SIDEBAR
+# 9. SIDEBAR
 # ==========================================
 
 st.sidebar.markdown("### 📋 Navigation")
@@ -701,24 +592,13 @@ st.sidebar.write(f"💰 Loans: **{count_loans}**")
 st.sidebar.write(f"💍 Gold: **{count_gold}**")
 st.sidebar.write(f"📝 Transactions: **{count_tx}**")
 
-# Show persistence status
-if GSHEETS_AVAILABLE:
-    try:
-        conn = get_sheets_connection()
-        if conn is not None:
-            st.sidebar.success("✅ Google Sheets: Connected")
-        else:
-            st.sidebar.warning("⚠️ Google Sheets: Not Connected (Using CSV fallback)")
-    except:
-        st.sidebar.warning("⚠️ Google Sheets: Not Connected (Using CSV fallback)")
-else:
-    st.sidebar.info("ℹ️ Using CSV Storage (Google Sheets not available)")
+st.sidebar.info("ℹ️ Using CSV Storage (Local files)")
 
 st.title("🏆 AuraLoan - Premium Gold Loan System")
 st.markdown("---")
 
 # ==========================================
-# 12. DASHBOARD MODULE
+# 10. DASHBOARD MODULE
 # ==========================================
 
 if choice == "🏠 Dashboard":
@@ -750,7 +630,7 @@ if choice == "🏠 Dashboard":
         st.info("📋 No data available yet. Start by adding customers and loans.")
 
 # ==========================================
-# 13. PARTY MASTER MODULE
+# 11. PARTY MASTER MODULE
 # ==========================================
 
 elif choice == "👤 Party Master":
@@ -797,7 +677,7 @@ elif choice == "👤 Party Master":
                 st.error("Name and Mobile fields are required.")
 
 # ==========================================
-# 14. EDIT/DELETE PARTY PROFILE MODULE
+# 12. EDIT/DELETE PARTY PROFILE MODULE
 # ==========================================
 
 elif choice == "✏️ Edit/Delete Party Profile":
@@ -872,7 +752,7 @@ elif choice == "✏️ Edit/Delete Party Profile":
                         st.error("Confirmation string does not match.")
 
 # ==========================================
-# 15. GOLD LOAN MANAGEMENT MODULE
+# 13. GOLD LOAN MANAGEMENT MODULE
 # ==========================================
 
 elif choice == "💰 Gold Loan Management":
@@ -1062,7 +942,7 @@ elif choice == "💰 Gold Loan Management":
                     st.info("No transactions yet.")
 
 # ==========================================
-# 16. GOLD PLEDGE MANAGEMENT MODULE
+# 14. GOLD PLEDGE MANAGEMENT MODULE
 # ==========================================
 
 elif choice == "💍 Gold Pledge Management":
@@ -1096,7 +976,7 @@ elif choice == "💍 Gold Pledge Management":
                 st.markdown("---")
 
 # ==========================================
-# 17. LOAN AGREEMENT MODULE
+# 15. LOAN AGREEMENT MODULE
 # ==========================================
 
 elif choice == "📄 Loan Agreement (Malayalam)":
@@ -1129,7 +1009,7 @@ elif choice == "📄 Loan Agreement (Malayalam)":
                              file_name=f"Fee_Receipt_Loan_{loan_row['id']}.html", mime="text/html")
 
 # ==========================================
-# 18. EMI SCHEDULE MODULE
+# 16. EMI SCHEDULE MODULE
 # ==========================================
 
 elif choice == "📅 EMI Schedule":
@@ -1168,7 +1048,7 @@ elif choice == "📅 EMI Schedule":
         st.table(pd.DataFrame(schedule_list))
 
 # ==========================================
-# 19. BACKUP & RESTORE MODULE
+# 17. BACKUP & RESTORE MODULE
 # ==========================================
 
 elif choice == "💾 Backup & Restore":
@@ -1202,19 +1082,19 @@ elif choice == "💾 Backup & Restore":
             df_ledger = load_csv_data("ledger_backup.csv", LEDGER_COLUMNS)
             
             if not df_parties.empty:
-                update_sheet_or_csv("parties", df_parties, "parties.csv")
+                save_csv_data("parties.csv", df_parties)
                 st.success("✅ Parties restored")
             if not df_loans.empty:
-                update_sheet_or_csv("loans", df_loans, "loans.csv")
+                save_csv_data("loans.csv", df_loans)
                 st.success("✅ Loans restored")
             if not df_ledger.empty:
-                update_sheet_or_csv("ledger", df_ledger, "ledger.csv")
+                save_csv_data("ledger.csv", df_ledger)
                 st.success("✅ Ledger restored")
             
             force_reload_all()
 
 # ==========================================
-# 20. FORCE RELOAD MODULE
+# 18. FORCE RELOAD MODULE
 # ==========================================
 
 elif choice == "🔄 Force Reload":

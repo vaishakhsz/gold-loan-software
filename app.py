@@ -2,13 +2,12 @@ import streamlit as st
 import pandas as pd
 from datetime import datetime
 import base64
+import os
+import shutil
 
 # ==========================================
-# 1. GOOGLE SHEETS CONNECTION
+# 1. CSV STORAGE (No API Required)
 # ==========================================
-
-# Import the connection
-from streamlit_gsheets import GSheetsConnection
 
 # Define column structures
 PARTIES_COLUMNS = [
@@ -31,67 +30,76 @@ LEDGER_COLUMNS = [
 ]
 
 # ==========================================
-# 2. GOOGLE SHEETS OPERATIONS
+# 2. CSV FILE OPERATIONS
 # ==========================================
 
-def get_connection():
-    """Get Google Sheets connection"""
-    try:
-        conn = st.connection("gsheets", type=GSheetsConnection)
-        return conn
-    except Exception as e:
-        st.error(f"Connection error: {e}")
-        return None
+def create_empty_df(columns):
+    """Create an empty DataFrame with proper columns"""
+    return pd.DataFrame(columns=columns)
 
-def create_sheet_with_columns(conn, sheet_name, columns):
-    """Create a sheet with proper columns"""
+def ensure_csv_exists(filename, columns):
+    """Ensure CSV file exists with proper columns"""
     try:
-        # Try to read existing sheet
-        df = conn.read(worksheet=sheet_name, ttl=0)
-        
-        # If sheet exists but has wrong columns, update it
-        if not df.empty:
-            # Check if all columns exist
-            missing_cols = [col for col in columns if col not in df.columns]
-            if missing_cols:
-                for col in missing_cols:
-                    df[col] = None
-                conn.update(worksheet=sheet_name, data=df)
-                st.info(f"✅ Updated {sheet_name} with missing columns")
-            return df
-        
-        # Sheet is empty, create with columns
-        df = pd.DataFrame(columns=columns)
-        conn.update(worksheet=sheet_name, data=df)
-        st.info(f"✅ Created {sheet_name} with {len(columns)} columns")
-        return df
-        
+        if not os.path.exists(filename):
+            df = pd.DataFrame(columns=columns)
+            df.to_csv(filename, index=False)
+            print(f"Created {filename}")
+            return True
+        else:
+            # Check if file has proper columns
+            df = pd.read_csv(filename)
+            if df.empty:
+                df = pd.DataFrame(columns=columns)
+                df.to_csv(filename, index=False)
+                return True
+            return True
     except Exception as e:
-        # Sheet doesn't exist, create it
+        print(f"Error ensuring {filename}: {e}")
         try:
             df = pd.DataFrame(columns=columns)
-            conn.update(worksheet=sheet_name, data=df)
-            st.info(f"✅ Created new sheet: {sheet_name}")
-            return df
-        except Exception as create_error:
-            st.error(f"Failed to create {sheet_name}: {create_error}")
-            return pd.DataFrame(columns=columns)
+            df.to_csv(filename, index=False)
+            return True
+        except:
+            return False
 
-def init_sheets():
-    """Initialize all sheets with proper columns"""
-    conn = get_connection()
-    if conn is None:
-        st.error("❌ Could not connect to Google Sheets")
-        return False
-    
+def load_csv_data(filename, columns):
+    """Load data from CSV file"""
     try:
-        # Create each sheet with proper columns
-        create_sheet_with_columns(conn, "parties", PARTIES_COLUMNS)
-        create_sheet_with_columns(conn, "loans", LOANS_COLUMNS)
-        create_sheet_with_columns(conn, "ledger", LEDGER_COLUMNS)
+        ensure_csv_exists(filename, columns)
+        df = pd.read_csv(filename)
+        if df.empty:
+            return pd.DataFrame(columns=columns)
+        
+        # Ensure all columns exist
+        for col in columns:
+            if col not in df.columns:
+                df[col] = None
+        
+        # Convert id to int if exists
+        if 'id' in df.columns:
+            df['id'] = pd.to_numeric(df['id'], errors='coerce').fillna(0).astype(int)
+        
+        return df
+    except Exception as e:
+        print(f"Error loading {filename}: {e}")
+        return pd.DataFrame(columns=columns)
+
+def save_csv_data(filename, df):
+    """Save data to CSV file"""
+    try:
+        # Create backups directory
+        if not os.path.exists('backups'):
+            os.makedirs('backups')
+        
+        # Save to main file
+        df.to_csv(filename, index=False)
+        
+        # Save backup
+        backup_filename = f"backups/{filename.replace('.csv', '')}_backup_{datetime.now().strftime('%Y%m%d_%H%M%S')}.csv"
+        df.to_csv(backup_filename, index=False)
         return True
     except Exception as e:
-        st.error(f"Error initializing sheets: {e}")
+        print(f"Error saving {filename}: {e}")
         return False
 
 # ==========================================
@@ -103,112 +111,39 @@ def get_parties(force_reload=False):
     cache_key = 'parties_cache'
     
     if not force_reload and cache_key in st.session_state:
-        return st.session_state[cache_key]
+        cached = st.session_state[cache_key]
+        if cached is not None and isinstance(cached, pd.DataFrame):
+            return cached
     
-    conn = get_connection()
-    if conn is None:
-        return pd.DataFrame(columns=PARTIES_COLUMNS)
-    
-    try:
-        df = conn.read(worksheet="parties", ttl=0)
-        
-        # If empty, create with columns
-        if df.empty:
-            df = pd.DataFrame(columns=PARTIES_COLUMNS)
-        else:
-            # Ensure all columns exist
-            for col in PARTIES_COLUMNS:
-                if col not in df.columns:
-                    df[col] = None
-            
-            # Convert id to int
-            if 'id' in df.columns:
-                df['id'] = pd.to_numeric(df['id'], errors='coerce').fillna(0).astype(int)
-        
-        st.session_state[cache_key] = df
-        return df
-    except Exception as e:
-        st.error(f"Error reading parties: {e}")
-        return pd.DataFrame(columns=PARTIES_COLUMNS)
+    df = load_csv_data("parties.csv", PARTIES_COLUMNS)
+    st.session_state[cache_key] = df
+    return df
 
 def get_loans(force_reload=False):
     """Get all loans"""
     cache_key = 'loans_cache'
     
     if not force_reload and cache_key in st.session_state:
-        return st.session_state[cache_key]
+        cached = st.session_state[cache_key]
+        if cached is not None and isinstance(cached, pd.DataFrame):
+            return cached
     
-    conn = get_connection()
-    if conn is None:
-        return pd.DataFrame(columns=LOANS_COLUMNS)
-    
-    try:
-        df = conn.read(worksheet="loans", ttl=0)
-        
-        if df.empty:
-            df = pd.DataFrame(columns=LOANS_COLUMNS)
-        else:
-            for col in LOANS_COLUMNS:
-                if col not in df.columns:
-                    df[col] = None
-            
-            if 'id' in df.columns:
-                df['id'] = pd.to_numeric(df['id'], errors='coerce').fillna(0).astype(int)
-        
-        st.session_state[cache_key] = df
-        return df
-    except Exception as e:
-        st.error(f"Error reading loans: {e}")
-        return pd.DataFrame(columns=LOANS_COLUMNS)
+    df = load_csv_data("loans.csv", LOANS_COLUMNS)
+    st.session_state[cache_key] = df
+    return df
 
 def get_ledger(force_reload=False):
     """Get all ledger entries"""
     cache_key = 'ledger_cache'
     
     if not force_reload and cache_key in st.session_state:
-        return st.session_state[cache_key]
+        cached = st.session_state[cache_key]
+        if cached is not None and isinstance(cached, pd.DataFrame):
+            return cached
     
-    conn = get_connection()
-    if conn is None:
-        return pd.DataFrame(columns=LEDGER_COLUMNS)
-    
-    try:
-        df = conn.read(worksheet="ledger", ttl=0)
-        
-        if df.empty:
-            df = pd.DataFrame(columns=LEDGER_COLUMNS)
-        else:
-            for col in LEDGER_COLUMNS:
-                if col not in df.columns:
-                    df[col] = None
-            
-            if 'id' in df.columns:
-                df['id'] = pd.to_numeric(df['id'], errors='coerce').fillna(0).astype(int)
-        
-        st.session_state[cache_key] = df
-        return df
-    except Exception as e:
-        st.error(f"Error reading ledger: {e}")
-        return pd.DataFrame(columns=LEDGER_COLUMNS)
-
-def update_sheet(sheet_name, data):
-    """Update a sheet in Google Sheets"""
-    conn = get_connection()
-    if conn is None:
-        return False
-    
-    try:
-        conn.update(worksheet=sheet_name, data=data)
-        
-        # Clear cache
-        cache_key = f"{sheet_name}_cache"
-        if cache_key in st.session_state:
-            del st.session_state[cache_key]
-        
-        return True
-    except Exception as e:
-        st.error(f"Error updating {sheet_name}: {e}")
-        return False
+    df = load_csv_data("ledger.csv", LEDGER_COLUMNS)
+    st.session_state[cache_key] = df
+    return df
 
 def get_next_id(df, id_column='id'):
     """Get next available ID"""
@@ -248,11 +183,11 @@ def add_party(data):
             'created_at': str(datetime.now().date())
         }
         
-        # Add row
         df = pd.concat([df, pd.DataFrame([new_row])], ignore_index=True)
         df['id'] = df['id'].astype(int)
         
-        if update_sheet("parties", df):
+        if save_csv_data("parties.csv", df):
+            st.session_state.pop('parties_cache', None)
             return new_id
         return None
     except Exception as e:
@@ -293,7 +228,7 @@ def add_loan(data):
         df = pd.concat([df, pd.DataFrame([new_row])], ignore_index=True)
         df['id'] = df['id'].astype(int)
         
-        if update_sheet("loans", df):
+        if save_csv_data("loans.csv", df):
             # Add to ledger
             add_ledger_entry({
                 'loan_id': new_id,
@@ -301,6 +236,7 @@ def add_loan(data):
                 'amount': float(data.get('principal', 0)),
                 'transaction_date': str(datetime.now().date())
             })
+            st.session_state.pop('loans_cache', None)
             return new_id
         return None
     except Exception as e:
@@ -324,7 +260,8 @@ def add_ledger_entry(data):
         df = pd.concat([df, pd.DataFrame([new_row])], ignore_index=True)
         df['id'] = df['id'].astype(int)
         
-        if update_sheet("ledger", df):
+        if save_csv_data("ledger.csv", df):
+            st.session_state.pop('ledger_cache', None)
             return new_id
         return None
     except Exception as e:
@@ -346,7 +283,10 @@ def update_party(party_id, data):
             if key in df.columns:
                 df.loc[mask, key] = value
         
-        return update_sheet("parties", df)
+        if save_csv_data("parties.csv", df):
+            st.session_state.pop('parties_cache', None)
+            return True
+        return False
     except Exception as e:
         st.error(f"Error updating party: {e}")
         return False
@@ -359,7 +299,11 @@ def delete_party(party_id):
             return False
         
         df = df[df['id'] != party_id]
-        return update_sheet("parties", df)
+        
+        if save_csv_data("parties.csv", df):
+            st.session_state.pop('parties_cache', None)
+            return True
+        return False
     except Exception as e:
         st.error(f"Error deleting party: {e}")
         return False
@@ -376,7 +320,11 @@ def update_loan_status(loan_id, status):
             return False
         
         df.loc[mask, 'status'] = status
-        return update_sheet("loans", df)
+        
+        if save_csv_data("loans.csv", df):
+            st.session_state.pop('loans_cache', None)
+            return True
+        return False
     except Exception as e:
         st.error(f"Error updating loan status: {e}")
         return False
@@ -496,6 +444,11 @@ def generate_fee_receipt_html(loan_row, party_row):
 # 6. INITIALIZATION
 # ==========================================
 
+# Ensure CSV files exist
+ensure_csv_exists("parties.csv", PARTIES_COLUMNS)
+ensure_csv_exists("loans.csv", LOANS_COLUMNS)
+ensure_csv_exists("ledger.csv", LEDGER_COLUMNS)
+
 # Initialize session state
 if 'parties_cache' not in st.session_state:
     st.session_state['parties_cache'] = None
@@ -503,14 +456,6 @@ if 'loans_cache' not in st.session_state:
     st.session_state['loans_cache'] = None
 if 'ledger_cache' not in st.session_state:
     st.session_state['ledger_cache'] = None
-if 'init_done' not in st.session_state:
-    st.session_state['init_done'] = False
-
-# Initialize Google Sheets
-if not st.session_state['init_done']:
-    with st.spinner("Initializing Google Sheets..."):
-        if init_sheets():
-            st.session_state['init_done'] = True
 
 # ==========================================
 # 7. SYSTEM STATS
@@ -582,7 +527,7 @@ st.sidebar.write(f"💰 Loans: **{count_loans}**")
 st.sidebar.write(f"💍 Gold: **{count_gold}**")
 st.sidebar.write(f"📝 Transactions: **{count_tx}**")
 
-st.sidebar.success("✅ Google Sheets: Connected")
+st.sidebar.info("📁 Using CSV Storage (Files saved locally)")
 
 st.title("🏆 AuraLoan - Premium Gold Loan System")
 st.markdown("---")
@@ -667,7 +612,8 @@ elif choice == "👤 Party Master":
                 st.error("Name and Mobile fields are required.")
 
 # ==========================================
-# 11. EDIT/DELETE PARTY PROFILE MODULE# ==========================================
+# 11. EDIT/DELETE PARTY PROFILE MODULE
+# ==========================================
 
 elif choice == "✏️ Edit/Delete Party Profile":
     st.header("✏️ Profile Management Core (Edit / Delete Customer Accounts)")
@@ -726,7 +672,7 @@ elif choice == "✏️ Edit/Delete Party Profile":
                 has_active_loans = len(df_loans[(df_loans['party_id'] == party_to_edit) & (df_loans['status'] == 'Active')]) > 0
             
             if has_active_loans:
-                st.error("❌ Cannot delete: This customer has active loans.")
+                st.error("❌ Cannot delete: This customer has active loans. Close the loans first.")
             else:
                 confirm_delete_text = st.text_input("Type 'DELETE' to confirm action:")
                 if st.button("Confirm Account Destruction"):
@@ -740,36 +686,51 @@ elif choice == "✏️ Edit/Delete Party Profile":
                         st.error("Confirmation string does not match.")
 
 # ==========================================
-# 12. GOLD LOAN MANAGEMENT
+# 12. GOLD LOAN MANAGEMENT MODULE
 # ==========================================
 
 elif choice == "💰 Gold Loan Management":
     if sub_choice == "💸 Loan Disbursement":
-        st.header("💸 Gold Loan Formulation")
+        st.header("💸 Gold Loan Formulation (Disbursement = Principal)")
         
         df_parties = get_parties()
         df_verified = df_parties[df_parties['kyc_status'] == 'Verified'] if df_parties is not None and not df_parties.empty else pd.DataFrame()
         
         if df_verified.empty:
-            st.warning("⚠️ No Verified Customers Available.")
+            st.warning("⚠️ No Verified Customers Available. Please verify a profile inside Party Management first.")
         else:
             party_options = {row['id']: row['name'] for _, row in df_verified.iterrows()}
             
-            with st.form("disbursement_form"):
-                selected_party = st.selectbox("Select Customer", list(party_options.keys()), format_func=lambda x: party_options[x])
+            with st.form("disbursement_calculator_form"):
+                selected_party = st.selectbox("Select Verified Borrower Profile", list(party_options.keys()), 
+                                            format_func=lambda x: party_options[x])
                 
                 col1, col2 = st.columns(2)
                 with col1:
-                    gold_description = st.text_input("Gold Description")
-                    items_count = st.number_input("Items Count", min_value=1, value=1)
+                    st.markdown("#### 💎 Gold Details")
+                    gold_description = st.text_input("Description", placeholder="മാല, വളകൾ, മോതിരം")
+                    items_count = st.number_input("Count", min_value=1, value=1, step=1)
+                    gross_wt = st.number_input("Gross Weight (grams)", min_value=0.0, step=0.1)
                     net_wt = st.number_input("Net Weight (grams)", min_value=0.0, step=0.1)
                     purity = st.selectbox("Purity Karat", [24, 22, 20, 18], index=1)
                     appraised_val = st.number_input("Appraisal Value (₹)", min_value=0.0)
-                
+                    vault_id = st.text_input("Vault Storage ID Code")
+                    
+                    st.markdown("---")
+                    st.markdown("📷 **Attach Gold Photo**")
+                    gold_photo_data = st.file_uploader("Choose image", type=["jpg", "png", "jpeg"])
+                    
                 with col2:
+                    st.markdown("#### 📊 Calculation Terms")
+                    max_eligible = appraised_val * 0.75
+                    st.info(f"Regulatory 75% LTV Cap Limit: **₹{max_eligible:,.2f}**")
+                    
                     principal = st.number_input("Disbursement Amount (₹)", min_value=0.0, value=40375.0)
                     interest_rate = st.number_input("Interest Rate %", min_value=0.0, value=12.0)
                     duration = st.number_input("Tenure (Months)", min_value=1, max_value=36, value=12)
+                    
+                    st.markdown("---")
+                    st.markdown("#### 🏷️ Service Fees")
                     processing_fee = st.number_input("Processing Fee (₹)", min_value=0.0, value=500.0)
                     admin_fee = st.number_input("Admin Fee (₹)", min_value=0.0, value=200.0)
                     doc_fee = st.number_input("Documentation Fee (₹)", min_value=0.0, value=200.0)
@@ -778,114 +739,378 @@ elif choice == "💰 Gold Loan Management":
                     total_payable = principal + interest_amount
                     calculated_emi = total_payable / duration if duration > 0 else 0.0
                     
-                    st.write(f"**EMI:** ₹{calculated_emi:,.2f}")
+                    st.markdown("---")
+                    st.write(f"**Disbursement Amount:** ₹{principal:,.2f}")
+                    st.write(f"**Interest Amount:** ₹{interest_amount:,.2f}")
                     st.write(f"**Total Payable:** ₹{total_payable:,.2f}")
-                
-                if st.form_submit_button("Disburse Loan"):
-                    loan_data = {
-                        'party_id': selected_party,
-                        'principal': principal,
-                        'interest_rate': interest_rate,
-                        'duration_months': duration,
-                        'emi': calculated_emi,
-                        'processing_fee': processing_fee,
-                        'admin_fee': admin_fee,
-                        'documentation_fee': doc_fee,
-                        'interest_amount': interest_amount,
-                        'total_payable': total_payable,
-                        'gold_description': gold_description,
-                        'items_count': items_count,
-                        'net_weight': net_wt,
-                        'purity_karat': purity,
-                        'appraised_value': appraised_val,
-                        'vault_id': '',
-                        'gold_image_base64': ''
-                    }
+                    st.write(f"**EMI:** ₹{calculated_emi:,.2f}")
                     
-                    new_loan_id = add_loan(loan_data)
-                    if new_loan_id:
-                        st.success(f"✅ Loan #{new_loan_id} created!")
-                        st.rerun()
+                if st.form_submit_button("Finalize and Disburse"):
+                    if principal > max_eligible:
+                        st.error("Requested capital allocation exceeds the 75% LTV limit.")
+                    elif principal <= 0 or net_wt <= 0:
+                        st.error("Invalid entry constraints.")
                     else:
-                        st.error("❌ Failed to create loan")
-
+                        base64_image_str = ""
+                        if gold_photo_data is not None:
+                            bytes_data = gold_photo_data.read()
+                            base64_image_str = base64.b64encode(bytes_data).decode("utf-8")
+                        
+                        loan_data = {
+                            'party_id': selected_party,
+                            'principal': principal,
+                            'interest_rate': interest_rate,
+                            'duration_months': duration,
+                            'emi': calculated_emi,
+                            'processing_fee': processing_fee,
+                            'admin_fee': admin_fee,
+                            'documentation_fee': doc_fee,
+                            'interest_amount': interest_amount,
+                            'total_payable': total_payable,
+                            'gold_description': gold_description,
+                            'items_count': items_count,
+                            'gross_weight': gross_wt,
+                            'net_weight': net_wt,
+                            'purity_karat': purity,
+                            'appraised_value': appraised_val,
+                            'vault_id': vault_id,
+                            'gold_image_base64': base64_image_str
+                        }
+                        
+                        new_loan_id = add_loan(loan_data)
+                        if new_loan_id:
+                            st.success(f"✅ Loan Account #{new_loan_id} successfully created.")
+                            st.session_state['active_contract_loan_id'] = new_loan_id
+                            st.rerun()
+                        else:
+                            st.error("❌ Failed to create loan. Please try again.")
+            
+            if 'active_contract_loan_id' in st.session_state:
+                l_id = st.session_state['active_contract_loan_id']
+                df_loans = get_loans()
+                loan_row = df_loans[df_loans['id'] == l_id] if df_loans is not None and not df_loans.empty else pd.DataFrame()
+                
+                if not loan_row.empty:
+                    loan_row = loan_row.iloc[0]
+                    df_parties = get_parties()
+                    party_row = df_parties[df_parties['id'] == loan_row['party_id']] if df_parties is not None and not df_parties.empty else pd.DataFrame()
+                    
+                    if not party_row.empty:
+                        party_row = party_row.iloc[0]
+                        
+                        tab_voucher, tab_fee_receipt = st.tabs(["📄 Agreement Form", "🖨️ Fee Receipt"])
+                        
+                        with tab_voucher:
+                            instant_html = generate_agreement_html(loan_row, party_row)
+                            st.download_button(label="📥 Download Agreement", data=instant_html, 
+                                             file_name=f"Agreement_Loan_{l_id}.html", mime="text/html")
+                        
+                        with tab_fee_receipt:
+                            fee_html = generate_fee_receipt_html(loan_row, party_row)
+                            st.download_button(label="📥 Download Fee Receipt", data=fee_html, 
+                                             file_name=f"Fee_Receipt_Loan_{l_id}.html", mime="text/html")
+    
     elif sub_choice == "📊 Party Ledger":
-        st.header("📊 Customer Ledger")
+        st.header("📊 Customer Ledger Statements")
         
         df_loans = get_loans()
         df_active = df_loans[df_loans['status'] == 'Active'] if df_loans is not None and not df_loans.empty else pd.DataFrame()
         
         if df_active.empty:
-            st.info("No active loans.")
+            st.info("No active loan records open currently.")
         else:
             df_parties = get_parties()
             df_active = df_active.merge(df_parties[['id', 'name']], left_on='party_id', right_on='id', how='left')
             
-            loan_options = {row['id_x']: f"Loan #{row['id_x']} - {row['name']}" for _, row in df_active.iterrows()}
-            selected_loan = st.selectbox("Select Loan", list(loan_options.keys()), format_func=lambda x: loan_options[x])
+            loan_options = {row['id_x']: f"Loan #{row['id_x']} - Holder: {row['name']} (₹{row['principal']})" 
+                          for _, row in df_active.iterrows()}
+            selected_loan = st.selectbox("Select Target Portfolio File", list(loan_options.keys()), 
+                                       format_func=lambda x: loan_options[x])
             
             loan_row = df_loans[df_loans['id'] == selected_loan].iloc[0]
+            total_liability = float(loan_row['total_payable'] or 0.0)
+            
             df_ledger = get_ledger()
             df_loan_ledger = df_ledger[df_ledger['loan_id'] == selected_loan] if df_ledger is not None and not df_ledger.empty else pd.DataFrame()
+            total_repaid_credits = df_loan_ledger[df_loan_ledger['transaction_type'].isin(['Repayment', 'Interest Settlement'])]['amount'].sum() if not df_loan_ledger.empty else 0
+            total_repaid_credits = float(total_repaid_credits or 0.0)
+            live_outstanding_balance = max(0.0, total_liability - total_repaid_credits)
             
-            total_payable = float(loan_row['total_payable'])
-            total_repaid = df_loan_ledger['amount'].sum() if not df_loan_ledger.empty else 0
-            balance = total_payable - total_repaid
+            tab_post, tab_view, tab_print = st.tabs(["💳 Collection Repayment", "📑 View Ledger", "🖨️ Printable Sheet"])
             
-            col1, col2, col3 = st.columns(3)
-            col1.metric("Total Payable", f"₹{total_payable:,.2f}")
-            col2.metric("Total Repaid", f"₹{total_repaid:,.2f}")
-            col3.metric("Balance", f"₹{balance:,.2f}")
+            with tab_post:
+                if live_outstanding_balance <= 0.0:
+                    st.success("🎉 Already Repaid / Bill completely paid in full.")
+                else:
+                    with st.form("repayment_ledger_post_form"):
+                        repay_amt = st.number_input("Repayment Collected (₹)", min_value=0.0, 
+                                                   max_value=live_outstanding_balance, step=100.0)
+                        repay_date = st.date_input("Settlement Date")
+                        type_tx = st.selectbox("Allocation Type", ["Repayment", "Interest Settlement"])
+                        
+                        if st.form_submit_button("Post Entry"):
+                            if repay_amt > 0:
+                                add_ledger_entry({
+                                    'loan_id': selected_loan,
+                                    'transaction_type': type_tx,
+                                    'amount': repay_amt,
+                                    'transaction_date': str(repay_date)
+                                })
+                                
+                                if repay_amt >= live_outstanding_balance:
+                                    update_loan_status(selected_loan, 'Closed')
+                                
+                                st.success("✅ Repayment entry saved!")
+                                st.rerun()
             
-            if not df_loan_ledger.empty:
-                st.table(df_loan_ledger[['transaction_type', 'amount', 'transaction_date']])
+            with tab_view:
+                col_m1, col_m2, col_m3 = st.columns(3)
+                col_m1.metric("Disbursement Amount", f"₹{loan_row['principal']:,.2f}")
+                col_m2.metric("Total Payable", f"₹{total_liability:,.2f}")
+                col_m3.metric("Outstanding Balance", f"₹{live_outstanding_balance:,.2f}")
+                
+                if not df_loan_ledger.empty:
+                    st.table(df_loan_ledger[['transaction_type', 'amount', 'transaction_date']])
+                else:
+                    st.info("No transactions yet.")
+            
+            with tab_print:
+                st.markdown("### 🖨️ Printable Ledger Statement")
+                p_loan = loan_row
+                tx_rows = df_loan_ledger
+                
+                table_html_rows = ""
+                for _, tx in tx_rows.iterrows():
+                    display_type = "Loan Disbursement (Principal)" if tx['transaction_type'] == "Disbursement" else tx['transaction_type']
+                    table_html_rows += f"<tr><td>{tx['transaction_date']}</td><td>{display_type}</td><td>₹{tx['amount']:,.2f}</td></tr>"
+                
+                total_repaid = tx_rows['amount'].sum() if not tx_rows.empty else 0
+                balance_left = p_loan['total_payable'] - total_repaid
+                
+                if balance_left < 0.01:
+                    balance_html_str = "<b style='color:green; font-size:18px;'>Already Repaid / Paid in Full</b>"
+                else:
+                    balance_html_str = f"<b>₹{balance_left:,.2f}</b>"
+                
+                printable_html = f"""
+                <div style="font-family:Arial, sans-serif; padding:25px; border:1px solid #ccc; background-color:white; color:black; border-radius:5px;">
+                    <h2 style="text-align:center;margin-bottom:2px;">AURA LOAN MANAGEMENT SYSTEM</h2>
+                    <h4 style="text-align:center;margin-top:0px;color:#555;">STATEMENT OF ACCOUNT / PARTY LEDGER</h4>
+                    <hr>
+                    <table style="width:100%; margin-bottom:20px; font-size:14px;">
+                        <tr><td><b>Customer Name:</b> {party_row['name']}</td><td><b>Loan ID:</b> #{p_loan['id']}</td></tr>
+                        <tr><td><b>Mobile:</b> {party_row['mobile']}</td><td><b>Date Issued:</b> {p_loan['disbursed_date']}</td></tr>
+                    </table>
+                    
+                    <table style="width:100%; border-collapse:collapse; margin-top:10px;">
+                        <thead>
+                            <tr><th style="border:1px solid #000; padding:8px; text-align:left;">Date</th><th style="border:1px solid #000; padding:8px; text-align:left;">Description</th><th style="border:1px solid #000; padding:8px; text-align:left;">Amount</th></tr>
+                        </thead>
+                        <tbody>
+                            <tr><td style="border:1px solid #000; padding:8px;">{p_loan['disbursed_date']}</td><td style="border:1px solid #000; padding:8px;">Fixed Term Interest Charged</td><td style="border:1px solid #000; padding:8px;">₹{p_loan['interest_amount']:,.2f}</td></tr>
+                            {table_html_rows}
+                        </tbody>
+                    </table>
+                    
+                    <div style="margin-top:20px; text-align:right; font-size:16px;">
+                        <p><b>Principal/Disbursed Amount:</b> ₹{p_loan['principal']:,.2f}</p>
+                        <p><b>Total Interest Charged:</b> ₹{p_loan['interest_amount']:,.2f}</p>
+                        <hr style="border-top: 1px solid #000; width: 40%; margin-left: auto;">
+                        <p><b>Total Payable:</b> ₹{p_loan['total_payable']:,.2f}</p>
+                        <p style="color:green;"><b>Total Repaid:</b> ₹{total_repaid:,.2f}</p>
+                        <p style="color:red; font-size:18px;"><b>Outstanding Balance:</b> {balance_html_str}</p>
+                    </div>
+                </div>
+                """
+                st.download_button(label="📥 Download Ledger (HTML)", data=printable_html, 
+                                 file_name=f"Ledger_Loan_{selected_loan}.html", mime="text/html")
 
 # ==========================================
-# 13. OTHER MODULES (Placeholders)
+# 13. GOLD PLEDGE MANAGEMENT MODULE
 # ==========================================
 
 elif choice == "💍 Gold Pledge Management":
-    st.header("💍 Gold Pledge Management")
+    st.header("💍 Gold Pledge Inventory Vault Details")
+    
     df_loans = get_loans()
     df_active = df_loans[df_loans['status'] == 'Active'] if df_loans is not None and not df_loans.empty else pd.DataFrame()
     
     if df_active.empty:
-        st.info("No active pledges.")
+        st.info("No vaulted items found.")
     else:
         df_parties = get_parties()
         df_display = df_active.merge(df_parties[['id', 'name']], left_on='party_id', right_on='id', how='left')
         
         for _, row in df_display.iterrows():
             with st.container():
-                st.write(f"**Loan #{row['id_x']}** - {row['name']}")
-                st.write(f"Gold: {row.get('gold_description', 'N/A')}")
-                st.write(f"Weight: {row.get('net_weight', 0)}g")
+                col_text, col_img = st.columns([2, 1])
+                with col_text:
+                    st.markdown(f"### 📦 Loan #{row['id_x']}")
+                    st.write(f"👤 **Owner:** {row['name']}")
+                    st.write(f"📝 **Description:** {row.get('gold_description', 'N/A')}")
+                    st.write(f"🔢 **Count:** {row.get('items_count', 0)} Nos | ⚖️ **Weight:** {row.get('net_weight', 0)}g")
+                    st.write(f"🔒 **Vault ID:** `{row.get('vault_id', 'N/A')}`")
+                with col_img:
+                    if row.get('gold_image_base64') and pd.notna(row['gold_image_base64']):
+                        try:
+                            img_bytes = base64.b64decode(row['gold_image_base64'])
+                            st.image(img_bytes, caption="Pledged Gold Asset", width=180)
+                        except:
+                            st.write("Invalid image data")
                 st.markdown("---")
 
+# ==========================================
+# 14. LOAN AGREEMENT MODULE
+# ==========================================
+
 elif choice == "📄 Loan Agreement (Malayalam)":
-    st.header("📄 Loan Agreement")
-    st.info("Select a loan to generate agreement")
+    st.header("📄 Malayalam Legal Agreement Console")
+    
+    df_loans = get_loans()
+    if df_loans is None or df_loans.empty:
+        st.info("No loan files available.")
+    else:
+        df_parties = get_parties()
+        df_merged = df_loans.merge(df_parties[['id', 'name']], left_on='party_id', right_on='id', how='left')
+        
+        contract_options = {row['id_x']: f"Loan #{row['id_x']} - {row['name']}" for _, row in df_merged.iterrows()}
+        target_contract = st.selectbox("Select Target Portfolio File", list(contract_options.keys()), 
+                                     format_func=lambda x: contract_options[x])
+        
+        loan_row = df_loans[df_loans['id'] == target_contract].iloc[0]
+        party_row = df_parties[df_parties['id'] == loan_row['party_id']].iloc[0]
+        
+        tab_contract_view, tab_receipt_view = st.tabs(["📜 Agreement Form", "🧾 Fee Receipt"])
+        
+        with tab_contract_view:
+            agreement_html = generate_agreement_html(loan_row, party_row)
+            st.download_button(label="📥 Download Agreement HTML", data=agreement_html, 
+                             file_name=f"Agreement_Loan_{loan_row['id']}.html", mime="text/html")
+        
+        with tab_receipt_view:
+            fee_html = generate_fee_receipt_html(loan_row, party_row)
+            st.download_button(label="📥 Download Fee Receipt HTML", data=fee_html, 
+                             file_name=f"Fee_Receipt_Loan_{loan_row['id']}.html", mime="text/html")
+
+# ==========================================
+# 15. EMI SCHEDULE MODULE
+# ==========================================
 
 elif choice == "📅 EMI Schedule":
-    st.header("📅 EMI Schedule")
+    st.header("📅 Monthly Recovery Projection Mapping (EMI Schedule)")
+    
     df_loans = get_loans()
     df_active = df_loans[df_loans['status'] == 'Active'] if df_loans is not None and not df_loans.empty else pd.DataFrame()
     
-    if not df_active.empty:
-        for _, row in df_active.iterrows():
-            st.write(f"**Loan #{row['id']}**")
-            st.write(f"EMI: ₹{row['emi']:,.2f}")
-            st.write(f"Duration: {row['duration_months']} months")
-            st.markdown("---")
+    if df_active.empty:
+        st.info("No active loan tracking matrices found.")
+    else:
+        df_parties = get_parties()
+        df_active = df_active.merge(df_parties[['id', 'name']], left_on='party_id', right_on='id', how='left')
+        
+        loan_options = {row['id_x']: f"Loan #{row['id_x']} - {row['name']} (EMI: ₹{row['emi']:,.2f})" 
+                       for _, row in df_active.iterrows()}
+        selected_sched = st.selectbox("Select Target Loan ID Schedule Map", list(loan_options.keys()), 
+                                     format_func=lambda x: loan_options[x])
+        
+        loan_row = df_loans[df_loans['id'] == selected_sched].iloc[0]
+        
+        schedule_list = []
+        remaining = loan_row['total_payable']
+        
+        for month in range(1, loan_row['duration_months'] + 1):
+            remaining -= loan_row['emi']
+            current_rem = max(0.0, remaining)
+            display_rem = "Already Repaid" if current_rem < 0.01 else f"₹{current_rem:,.2f}"
+            
+            schedule_list.append({
+                "Installment": f"Month {month}",
+                "Payment Amount (₹)": f"₹{loan_row['emi']:,.2f}",
+                "Outstanding Balance": display_rem
+            })
+        
+        st.table(pd.DataFrame(schedule_list))
+
+# ==========================================
+# 16. BACKUP & RESTORE MODULE
+# ==========================================
 
 elif choice == "💾 Backup & Restore":
-    st.header("💾 Backup & Restore")
-    st.info("Backup and restore functionality")
+    st.header("💾 Backup & Restore System")
+    
+    tab1, tab2 = st.tabs(["📤 Create Backup", "📥 Restore Backup"])
+    
+    with tab1:
+        st.subheader("Create Manual Backup")
+        if st.button("📤 Create Backup of All Data", use_container_width=True):
+            with st.spinner("Creating backup..."):
+                df_parties = get_parties(force_reload=True)
+                df_loans = get_loans(force_reload=True)
+                df_ledger = get_ledger(force_reload=True)
+                
+                if save_csv_data("parties_backup.csv", df_parties):
+                    st.success("✅ Parties backup created")
+                if save_csv_data("loans_backup.csv", df_loans):
+                    st.success("✅ Loans backup created")
+                if save_csv_data("ledger_backup.csv", df_ledger):
+                    st.success("✅ Ledger backup created")
+    
+    with tab2:
+        st.subheader("Restore from Backup")
+        st.warning("⚠️ This will restore data from the last backup!")
+        
+        if st.button("📥 Restore All Data from Backup", use_container_width=True):
+            df_parties = load_csv_data("parties_backup.csv", PARTIES_COLUMNS)
+            df_loans = load_csv_data("loans_backup.csv", LOANS_COLUMNS)
+            df_ledger = load_csv_data("ledger_backup.csv", LEDGER_COLUMNS)
+            
+            if not df_parties.empty:
+                save_csv_data("parties.csv", df_parties)
+                st.success("✅ Parties restored")
+            if not df_loans.empty:
+                save_csv_data("loans.csv", df_loans)
+                st.success("✅ Loans restored")
+            if not df_ledger.empty:
+                save_csv_data("ledger.csv", df_ledger)
+                st.success("✅ Ledger restored")
+            
+            force_reload_all()
+
+# ==========================================
+# 17. FORCE RELOAD MODULE
+# ==========================================
 
 elif choice == "🔄 Force Reload":
-    st.header("🔄 Force Reload")
-    if st.button("Force Reload All Data"):
-        force_reload_all()
+    st.header("🔄 Force Reload Data")
+    st.warning("⚠️ This will clear all cached data and reload from source")
+    
+    col1, col2 = st.columns(2)
+    
+    with col1:
+        if st.button("🔄 Force Reload All Data", use_container_width=True):
+            force_reload_all()
+    
+    with col2:
+        if st.button("🗑️ Clear Cache Only", use_container_width=True):
+            st.session_state.pop('parties_cache', None)
+            st.session_state.pop('loans_cache', None)
+            st.session_state.pop('ledger_cache', None)
+            st.success("Cache cleared!")
+            st.rerun()
+    
+    st.markdown("---")
+    st.subheader("📊 Current Cache Status")
+    
+    col3, col4, col5 = st.columns(3)
+    with col3:
+        parties_cached = st.session_state.get('parties_cache') is not None
+        st.write(f"Parties Cache: {'✅' if parties_cached else '❌'}")
+    with col4:
+        loans_cached = st.session_state.get('loans_cache') is not None
+        st.write(f"Loans Cache: {'✅' if loans_cached else '❌'}")
+    with col5:
+        ledger_cached = st.session_state.get('ledger_cache') is not None
+        st.write(f"Ledger Cache: {'✅' if ledger_cached else '❌'}")
 
 
 

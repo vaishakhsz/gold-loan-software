@@ -7,8 +7,17 @@ import json
 import os
 
 # ==========================================
-# 1. GOOGLE SHEETS CONFIGURATION
+# 1. GOOGLE SHEETS CONNECTION WITH FALLBACK
 # ==========================================
+
+# Try to import GSheetsConnection, fallback to CSV if not available
+try:
+    from st_gsheets_connection import GSheetsConnection
+    GSHEETS_AVAILABLE = True
+    st.info("✅ Google Sheets connection available")
+except ImportError:
+    GSHEETS_AVAILABLE = False
+    st.warning("⚠️ Google Sheets not available. Using CSV fallback.")
 
 # Define column structures
 PARTIES_COLUMNS = [
@@ -30,8 +39,53 @@ LEDGER_COLUMNS = [
     'id', 'loan_id', 'transaction_type', 'amount', 'transaction_date'
 ]
 
+# ==========================================
+# 2. CSV FALLBACK SYSTEM (for when Google Sheets fails)
+# ==========================================
+
+def load_csv_data(filename, columns):
+    """Load data from CSV file"""
+    try:
+        if os.path.exists(filename):
+            df = pd.read_csv(filename)
+            # Ensure all columns exist
+            for col in columns:
+                if col not in df.columns:
+                    df[col] = None
+            return df
+        else:
+            return pd.DataFrame(columns=columns)
+    except Exception as e:
+        st.error(f"Error loading {filename}: {e}")
+        return pd.DataFrame(columns=columns)
+
+def save_csv_data(filename, df):
+    """Save data to CSV file"""
+    try:
+        # Create backups directory
+        if not os.path.exists('backups'):
+            os.makedirs('backups')
+        
+        # Save to main file
+        df.to_csv(filename, index=False)
+        
+        # Also save a backup
+        backup_filename = f"backups/{filename.replace('.csv', '')}_backup_{datetime.now().strftime('%Y%m%d_%H%M%S')}.csv"
+        df.to_csv(backup_filename, index=False)
+        return True
+    except Exception as e:
+        st.error(f"Error saving {filename}: {e}")
+        return False
+
+# ==========================================
+# 3. GOOGLE SHEETS HELPERS
+# ==========================================
+
 def get_sheets_connection():
     """Get connection to Google Sheets with retry logic"""
+    if not GSHEETS_AVAILABLE:
+        return None
+    
     max_retries = 3
     retry_delay = 2
     
@@ -56,10 +110,8 @@ def create_sheet_if_not_exists(conn, sheet_name, columns):
         
         # If sheet exists but is empty or missing columns, recreate it
         if df.empty or not all(col in df.columns for col in columns):
-            # Create empty dataframe with proper columns
             df = pd.DataFrame(columns=columns)
             conn.update(worksheet=sheet_name, data=df)
-            st.info(f"✅ Created/Initialized '{sheet_name}' sheet with proper columns")
             return df
         return df
     except Exception as e:
@@ -67,7 +119,6 @@ def create_sheet_if_not_exists(conn, sheet_name, columns):
         try:
             df = pd.DataFrame(columns=columns)
             conn.update(worksheet=sheet_name, data=df)
-            st.info(f"✅ Created '{sheet_name}' sheet")
             return df
         except Exception as create_error:
             st.error(f"Failed to create sheet '{sheet_name}': {create_error}")
@@ -75,12 +126,14 @@ def create_sheet_if_not_exists(conn, sheet_name, columns):
 
 def init_sheets():
     """Initialize all sheets with proper columns"""
+    if not GSHEETS_AVAILABLE:
+        return False
+    
     conn = get_sheets_connection()
     if conn is None:
         return False
     
     try:
-        # Initialize each sheet
         create_sheet_if_not_exists(conn, "parties", PARTIES_COLUMNS)
         create_sheet_if_not_exists(conn, "loans", LOANS_COLUMNS)
         create_sheet_if_not_exists(conn, "ledger", LEDGER_COLUMNS)
@@ -90,170 +143,97 @@ def init_sheets():
         return False
 
 # ==========================================
-# 2. BACKUP SYSTEM
+# 4. DATA OPERATIONS (with Google Sheets or CSV fallback)
 # ==========================================
 
-def create_backup(data_type, df):
-    """Create a backup of data to session state and local file"""
-    try:
-        # Store in session state
-        backup_key = f"backup_{data_type}"
-        st.session_state[backup_key] = df.to_dict('records')
-        st.session_state[f"{backup_key}_time"] = datetime.now().isoformat()
-        
-        # Also save to local file as fallback
-        backup_dir = "backups"
-        if not os.path.exists(backup_dir):
-            os.makedirs(backup_dir)
-        
-        filename = f"{backup_dir}/{data_type}_backup_{datetime.now().strftime('%Y%m%d_%H%M%S')}.csv"
-        df.to_csv(filename, index=False)
-        
-        return True
-    except Exception as e:
-        st.warning(f"Backup warning for {data_type}: {e}")
-        return False
-
-def restore_from_backup(data_type):
-    """Restore data from session state backup"""
-    backup_key = f"backup_{data_type}"
-    if backup_key in st.session_state and st.session_state[backup_key]:
-        df = pd.DataFrame(st.session_state[backup_key])
-        return df
-    return None
-
-# ==========================================
-# 3. DATA OPERATIONS WITH RETRY AND BACKUP
-# ==========================================
-
-def safe_data_operation(operation, *args, **kwargs):
-    """Execute data operation with retry and fallback"""
-    max_retries = 3
-    retry_delay = 2
-    
-    for attempt in range(max_retries):
+def get_data_from_sheets_or_csv(sheet_name, columns, csv_filename):
+    """Get data from Google Sheets or fallback to CSV"""
+    if GSHEETS_AVAILABLE:
         try:
-            result = operation(*args, **kwargs)
-            return result
+            conn = get_sheets_connection()
+            if conn is not None:
+                df = conn.read(worksheet=sheet_name, ttl=0)
+                # Ensure all columns exist
+                for col in columns:
+                    if col not in df.columns:
+                        df[col] = None
+                
+                # Convert id to int
+                if 'id' in df.columns:
+                    df['id'] = pd.to_numeric(df['id'], errors='coerce').fillna(0).astype(int)
+                
+                # Cache in session state
+                cache_key = f"{sheet_name}_cache"
+                st.session_state[cache_key] = df
+                
+                # Also save as CSV backup
+                save_csv_data(csv_filename, df)
+                
+                return df
         except Exception as e:
-            if attempt < max_retries - 1:
-                time.sleep(retry_delay)
-                continue
-            else:
-                st.error(f"Operation failed after {max_retries} attempts: {e}")
-                return None
-    return None
+            st.warning(f"Google Sheets error for {sheet_name}: {e}. Using CSV fallback.")
+    
+    # Fallback to CSV
+    return load_csv_data(csv_filename, columns)
+
+def update_sheet_or_csv(sheet_name, data, csv_filename):
+    """Update Google Sheets or fallback to CSV"""
+    if GSHEETS_AVAILABLE:
+        try:
+            conn = get_sheets_connection()
+            if conn is not None:
+                conn.update(worksheet=sheet_name, data=data)
+                
+                # Clear cache after update
+                cache_key = f"{sheet_name}_cache"
+                if cache_key in st.session_state:
+                    del st.session_state[cache_key]
+                
+                # Save as CSV backup
+                save_csv_data(csv_filename, data)
+                return True
+        except Exception as e:
+            st.warning(f"Google Sheets update error for {sheet_name}: {e}. Using CSV fallback.")
+    
+    # Fallback to CSV
+    return save_csv_data(csv_filename, data)
+
+# ==========================================
+# 5. DATA ACCESS FUNCTIONS
+# ==========================================
 
 def get_parties(force_reload=False):
-    """Get all parties with caching and force reload option"""
-    # Check if we should use cached data
-    if not force_reload and 'parties_cache' in st.session_state:
-        return st.session_state['parties_cache']
+    """Get all parties"""
+    cache_key = 'parties_cache'
     
-    conn = get_sheets_connection()
-    if conn is None:
-        # Try to restore from backup
-        df = restore_from_backup("parties")
-        if df is not None:
-            st.warning("⚠️ Using backup data (connection failed)")
-            return df
-        return pd.DataFrame(columns=PARTIES_COLUMNS)
+    if not force_reload and cache_key in st.session_state and st.session_state[cache_key] is not None:
+        return st.session_state[cache_key]
     
-    try:
-        df = conn.read(worksheet="parties", ttl=0)
-        
-        # Ensure all columns exist
-        for col in PARTIES_COLUMNS:
-            if col not in df.columns:
-                df[col] = None
-        
-        # Convert id to int
-        if 'id' in df.columns:
-            df['id'] = pd.to_numeric(df['id'], errors='coerce').fillna(0).astype(int)
-        
-        # Cache the data
-        st.session_state['parties_cache'] = df
-        create_backup("parties", df)
-        return df
-    except Exception as e:
-        st.error(f"Error reading parties: {e}")
-        # Try to restore from backup
-        df = restore_from_backup("parties")
-        if df is not None:
-            st.warning("⚠️ Using backup data")
-            return df
-        return pd.DataFrame(columns=PARTIES_COLUMNS)
+    df = get_data_from_sheets_or_csv("parties", PARTIES_COLUMNS, "parties.csv")
+    st.session_state[cache_key] = df
+    return df
 
 def get_loans(force_reload=False):
-    """Get all loans with caching and force reload option"""
-    if not force_reload and 'loans_cache' in st.session_state:
-        return st.session_state['loans_cache']
+    """Get all loans"""
+    cache_key = 'loans_cache'
     
-    conn = get_sheets_connection()
-    if conn is None:
-        df = restore_from_backup("loans")
-        if df is not None:
-            st.warning("⚠️ Using backup data (connection failed)")
-            return df
-        return pd.DataFrame(columns=LOANS_COLUMNS)
+    if not force_reload and cache_key in st.session_state and st.session_state[cache_key] is not None:
+        return st.session_state[cache_key]
     
-    try:
-        df = conn.read(worksheet="loans", ttl=0)
-        
-        # Ensure all columns exist
-        for col in LOANS_COLUMNS:
-            if col not in df.columns:
-                df[col] = None
-        
-        # Convert id to int
-        if 'id' in df.columns:
-            df['id'] = pd.to_numeric(df['id'], errors='coerce').fillna(0).astype(int)
-        
-        st.session_state['loans_cache'] = df
-        create_backup("loans", df)
-        return df
-    except Exception as e:
-        st.error(f"Error reading loans: {e}")
-        df = restore_from_backup("loans")
-        if df is not None:
-            st.warning("⚠️ Using backup data")
-            return df
-        return pd.DataFrame(columns=LOANS_COLUMNS)
+    df = get_data_from_sheets_or_csv("loans", LOANS_COLUMNS, "loans.csv")
+    st.session_state[cache_key] = df
+    return df
 
 def get_ledger(force_reload=False):
-    """Get all ledger entries with caching and force reload option"""
-    if not force_reload and 'ledger_cache' in st.session_state:
-        return st.session_state['ledger_cache']
+    """Get all ledger entries"""
+    cache_key = 'ledger_cache'
     
-    conn = get_sheets_connection()
-    if conn is None:
-        df = restore_from_backup("ledger")
-        if df is not None:
-            st.warning("⚠️ Using backup data (connection failed)")
-            return df
-        return pd.DataFrame(columns=LEDGER_COLUMNS)
+    if not force_reload and cache_key in st.session_state and st.session_state[cache_key] is not None:
+        return st.session_state[cache_key]
     
-    try:
-        df = conn.read(worksheet="ledger", ttl=0)
-        
-        # Ensure all columns exist
-        for col in LEDGER_COLUMNS:
-            if col not in df.columns:
-                df[col] = None
-        
-        if 'id' in df.columns:
-            df['id'] = pd.to_numeric(df['id'], errors='coerce').fillna(0).astype(int)
-        
-        st.session_state['ledger_cache'] = df
-        create_backup("ledger", df)
-        return df
-    except Exception as e:
-        st.error(f"Error reading ledger: {e}")
-        df = restore_from_backup("ledger")
-        if df is not None:
-            st.warning("⚠️ Using backup data")
-            return df
-        return pd.DataFrame(columns=LEDGER_COLUMNS)
+    df = get_data_from_sheets_or_csv("ledger", LEDGER_COLUMNS, "ledger.csv")
+    st.session_state[cache_key] = df
+    return df
 
 def get_next_id(df, id_column='id'):
     """Get next available ID safely"""
@@ -267,37 +247,8 @@ def get_next_id(df, id_column='id'):
     except:
         return 1
 
-def update_sheet(worksheet, data):
-    """Update a sheet with retry logic"""
-    conn = get_sheets_connection()
-    if conn is None:
-        st.error("No connection to Google Sheets")
-        return False
-    
-    max_retries = 3
-    for attempt in range(max_retries):
-        try:
-            conn.update(worksheet=worksheet, data=data)
-            
-            # Clear cache after update
-            cache_key = f"{worksheet}_cache"
-            if cache_key in st.session_state:
-                del st.session_state[cache_key]
-            
-            # Create backup
-            create_backup(worksheet, data)
-            return True
-        except Exception as e:
-            if attempt < max_retries - 1:
-                time.sleep(2)
-                continue
-            else:
-                st.error(f"Failed to update {worksheet}: {e}")
-                return False
-    return False
-
 def add_party(data):
-    """Add new party with backup"""
+    """Add new party"""
     df = get_parties(force_reload=True)
     new_id = get_next_id(df)
     
@@ -317,20 +268,16 @@ def add_party(data):
         'created_at': str(datetime.now().date())
     }
     
-    # Add row with proper type conversion
     df = pd.concat([df, pd.DataFrame([new_row])], ignore_index=True)
-    
-    # Ensure proper data types
     df['id'] = df['id'].astype(int)
     
-    if update_sheet("parties", df):
-        # Clear cache
+    if update_sheet_or_csv("parties", df, "parties.csv"):
         st.session_state.pop('parties_cache', None)
         return new_id
     return None
 
 def add_loan(data):
-    """Add new loan with backup"""
+    """Add new loan"""
     df = get_loans(force_reload=True)
     new_id = get_next_id(df)
     
@@ -362,7 +309,7 @@ def add_loan(data):
     df = pd.concat([df, pd.DataFrame([new_row])], ignore_index=True)
     df['id'] = df['id'].astype(int)
     
-    if update_sheet("loans", df):
+    if update_sheet_or_csv("loans", df, "loans.csv"):
         # Add to ledger
         add_ledger_entry({
             'loan_id': new_id,
@@ -375,7 +322,7 @@ def add_loan(data):
     return None
 
 def add_ledger_entry(data):
-    """Add ledger entry with backup"""
+    """Add ledger entry"""
     df = get_ledger(force_reload=True)
     new_id = get_next_id(df)
     
@@ -390,7 +337,7 @@ def add_ledger_entry(data):
     df = pd.concat([df, pd.DataFrame([new_row])], ignore_index=True)
     df['id'] = df['id'].astype(int)
     
-    if update_sheet("ledger", df):
+    if update_sheet_or_csv("ledger", df, "ledger.csv"):
         st.session_state.pop('ledger_cache', None)
         return new_id
     return None
@@ -406,7 +353,7 @@ def update_party(party_id, data):
         if key in df.columns:
             df.loc[mask, key] = value
     
-    if update_sheet("parties", df):
+    if update_sheet_or_csv("parties", df, "parties.csv"):
         st.session_state.pop('parties_cache', None)
         return True
     return False
@@ -416,7 +363,7 @@ def delete_party(party_id):
     df = get_parties(force_reload=True)
     df = df[df['id'] != party_id]
     
-    if update_sheet("parties", df):
+    if update_sheet_or_csv("parties", df, "parties.csv"):
         st.session_state.pop('parties_cache', None)
         return True
     return False
@@ -430,22 +377,17 @@ def update_loan_status(loan_id, status):
     
     df.loc[mask, 'status'] = status
     
-    if update_sheet("loans", df):
+    if update_sheet_or_csv("loans", df, "loans.csv"):
         st.session_state.pop('loans_cache', None)
         return True
     return False
 
-# ==========================================
-# 4. FORCE RELOAD AND REFRESH FUNCTIONS
-# ==========================================
-
 def force_reload_all():
-    """Force reload all data from Google Sheets"""
+    """Force reload all data"""
     st.session_state.pop('parties_cache', None)
     st.session_state.pop('loans_cache', None)
     st.session_state.pop('ledger_cache', None)
     
-    # Reload all data
     get_parties(force_reload=True)
     get_loans(force_reload=True)
     get_ledger(force_reload=True)
@@ -454,7 +396,7 @@ def force_reload_all():
     st.rerun()
 
 # ==========================================
-# 5. HTML GENERATORS
+# 6. HTML GENERATORS
 # ==========================================
 
 def generate_agreement_html(loan_row, party_row):
@@ -552,7 +494,7 @@ def generate_fee_receipt_html(loan_row, party_row):
     """
 
 # ==========================================
-# 6. INITIALIZATION
+# 7. INITIALIZATION
 # ==========================================
 
 # Initialize session state for caching
@@ -565,14 +507,16 @@ if 'ledger_cache' not in st.session_state:
 if 'init_done' not in st.session_state:
     st.session_state['init_done'] = False
 
-# Initialize sheets
-if not st.session_state['init_done']:
+# Initialize sheets (if Google Sheets available)
+if not st.session_state['init_done'] and GSHEETS_AVAILABLE:
     with st.spinner("Initializing Google Sheets connection..."):
         if init_sheets():
             st.session_state['init_done'] = True
+else:
+    st.session_state['init_done'] = True
 
 # ==========================================
-# 7. STREAMLIT UI
+# 8. STREAMLIT UI
 # ==========================================
 
 st.set_page_config(page_title="AuraLoan | Gold Loan System", layout="wide", page_icon="💎")
@@ -589,33 +533,6 @@ st.markdown("""
         border: 1px solid #E3C16F !important;
         box-shadow: 0px 2px 4px rgba(227, 193, 111, 0.1);
     }
-    .persistence-status {
-        padding: 10px;
-        border-radius: 5px;
-        margin-bottom: 10px;
-    }
-    .persistence-success {
-        background-color: #d4edda;
-        color: #155724;
-        border: 1px solid #c3e6cb;
-        padding: 10px;
-        border-radius: 5px;
-    }
-    .persistence-warning {
-        background-color: #fff3cd;
-        color: #856404;
-        border: 1px solid #ffeeba;
-        padding: 10px;
-        border-radius: 5px;
-    }
-    .refresh-button {
-        background-color: #28a745;
-        color: white;
-        padding: 10px 20px;
-        border-radius: 5px;
-        border: none;
-        cursor: pointer;
-    }
     </style>
 """, unsafe_allow_html=True)
 
@@ -626,13 +543,13 @@ def get_system_stats():
         df_loans = get_loans()
         df_ledger = get_ledger()
         
-        count_parties = len(df_parties)
-        count_loans = len(df_loans)
-        count_gold = len(df_loans[df_loans['status'] == 'Active']) if not df_loans.empty else 0
-        count_tx = len(df_ledger)
+        count_parties = len(df_parties) if not df_parties.empty else 0
+        count_loans = len(df_loans) if not df_loans.empty else 0
+        count_gold = len(df_loans[df_loans['status'] == 'Active']) if not df_loans.empty and 'status' in df_loans.columns else 0
+        count_tx = len(df_ledger) if not df_ledger.empty else 0
         
         return count_parties, count_loans, count_gold, count_tx
-    except:
+    except Exception as e:
         return 0, 0, 0, 0
 
 count_parties, count_loans, count_gold, count_tx = get_system_stats()
@@ -667,125 +584,73 @@ st.sidebar.write(f"💍 Gold: **{count_gold}**")
 st.sidebar.write(f"📝 Transactions: **{count_tx}**")
 
 # Show persistence status
-try:
-    conn = get_sheets_connection()
-    if conn is not None:
-        st.sidebar.success("✅ Google Sheets: Connected")
-    else:
-        st.sidebar.warning("⚠️ Google Sheets: Not Connected")
-except:
-    st.sidebar.warning("⚠️ Google Sheets: Not Connected")
+if GSHEETS_AVAILABLE:
+    try:
+        conn = get_sheets_connection()
+        if conn is not None:
+            st.sidebar.success("✅ Google Sheets: Connected")
+        else:
+            st.sidebar.warning("⚠️ Google Sheets: Not Connected (Using CSV fallback)")
+    except:
+        st.sidebar.warning("⚠️ Google Sheets: Not Connected (Using CSV fallback)")
+else:
+    st.sidebar.info("ℹ️ Using CSV Storage (Google Sheets not available)")
 
 st.title("🏆 AuraLoan - Premium Gold Loan System")
 st.markdown("---")
 
 # ==========================================
-# 8. MODULES
+# 9. MODULES
 # ==========================================
 
 if choice == "🔄 Force Reload":
-    st.header("🔄 Force Reload Data from Google Sheets")
-    st.warning("⚠️ This will clear all cached data and reload from Google Sheets")
+    st.header("🔄 Force Reload Data")
+    st.warning("⚠️ This will clear all cached data and reload from source")
     
-    col1, col2 = st.columns(2)
-    with col1:
-        if st.button("🔄 Force Reload All Data", use_container_width=True):
-            force_reload_all()
-    
-    with col2:
-        if st.button("🗑️ Clear Cache Only", use_container_width=True):
-            st.session_state.pop('parties_cache', None)
-            st.session_state.pop('loans_cache', None)
-            st.session_state.pop('ledger_cache', None)
-            st.success("Cache cleared!")
-            st.rerun()
-    
-    st.markdown("---")
-    st.subheader("📊 Current Cache Status")
-    
-    col3, col4, col5 = st.columns(3)
-    with col3:
-        parties_cached = st.session_state.get('parties_cache') is not None
-        st.write(f"Parties Cache: {'✅' if parties_cached else '❌'}")
-    with col4:
-        loans_cached = st.session_state.get('loans_cache') is not None
-        st.write(f"Loans Cache: {'✅' if loans_cached else '❌'}")
-    with col5:
-        ledger_cached = st.session_state.get('ledger_cache') is not None
-        st.write(f"Ledger Cache: {'✅' if ledger_cached else '❌'}")
+    if st.button("🔄 Force Reload All Data", use_container_width=True):
+        force_reload_all()
 
 elif choice == "💾 Backup & Restore":
     st.header("💾 Backup & Restore System")
     
-    tab1, tab2, tab3 = st.tabs(["📤 Create Backup", "📥 Restore Backup", "📋 View Backups"])
+    tab1, tab2 = st.tabs(["📤 Create Backup", "📥 Restore Backup"])
     
     with tab1:
         st.subheader("Create Manual Backup")
         if st.button("📤 Create Backup of All Data", use_container_width=True):
             with st.spinner("Creating backup..."):
-                # Backup all data
                 df_parties = get_parties(force_reload=True)
                 df_loans = get_loans(force_reload=True)
                 df_ledger = get_ledger(force_reload=True)
                 
-                if create_backup("parties", df_parties):
+                if save_csv_data("parties_backup.csv", df_parties):
                     st.success("✅ Parties backup created")
-                if create_backup("loans", df_loans):
+                if save_csv_data("loans_backup.csv", df_loans):
                     st.success("✅ Loans backup created")
-                if create_backup("ledger", df_ledger):
+                if save_csv_data("ledger_backup.csv", df_ledger):
                     st.success("✅ Ledger backup created")
-                
-                st.success("✅ All backups created successfully!")
     
     with tab2:
         st.subheader("Restore from Backup")
-        st.warning("⚠️ This will restore data from the last backup. Current data will be replaced!")
+        st.warning("⚠️ This will restore data from the last backup!")
         
-        col1, col2, col3 = st.columns(3)
-        with col1:
-            if st.button("📥 Restore Parties", use_container_width=True):
-                df = restore_from_backup("parties")
-                if df is not None:
-                    if update_sheet("parties", df):
-                        st.success("✅ Parties restored from backup!")
-                        st.rerun()
-                else:
-                    st.error("No backup found for Parties")
-        
-        with col2:
-            if st.button("📥 Restore Loans", use_container_width=True):
-                df = restore_from_backup("loans")
-                if df is not None:
-                    if update_sheet("loans", df):
-                        st.success("✅ Loans restored from backup!")
-                        st.rerun()
-                else:
-                    st.error("No backup found for Loans")
-        
-        with col3:
-            if st.button("📥 Restore Ledger", use_container_width=True):
-                df = restore_from_backup("ledger")
-                if df is not None:
-                    if update_sheet("ledger", df):
-                        st.success("✅ Ledger restored from backup!")
-                        st.rerun()
-                else:
-                    st.error("No backup found for Ledger")
-    
-    with tab3:
-        st.subheader("Backup Information")
-        
-        # Show when backups were created
-        for data_type in ["parties", "loans", "ledger"]:
-            backup_key = f"backup_{data_type}_time"
-            if backup_key in st.session_state:
-                st.info(f"📁 {data_type.capitalize()} backup created at: {st.session_state[backup_key]}")
-            else:
-                st.warning(f"No backup found for {data_type}")
-
-# ==========================================
-# 9. OTHER MODULES (Party Master, Loans, etc.)
-# ==========================================
+        if st.button("📥 Restore All Data from Backup", use_container_width=True):
+            # Restore from backups
+            df_parties = load_csv_data("parties_backup.csv", PARTIES_COLUMNS)
+            df_loans = load_csv_data("loans_backup.csv", LOANS_COLUMNS)
+            df_ledger = load_csv_data("ledger_backup.csv", LEDGER_COLUMNS)
+            
+            if not df_parties.empty:
+                update_sheet_or_csv("parties", df_parties, "parties.csv")
+                st.success("✅ Parties restored")
+            if not df_loans.empty:
+                update_sheet_or_csv("loans", df_loans, "loans.csv")
+                st.success("✅ Loans restored")
+            if not df_ledger.empty:
+                update_sheet_or_csv("ledger", df_ledger, "ledger.csv")
+                st.success("✅ Ledger restored")
+            
+            force_reload_all()
 
 elif choice == "🏠 Dashboard":
     st.header("📊 Executive Portfolio Dashboard")
@@ -802,14 +667,9 @@ elif choice == "🏠 Dashboard":
         col1.metric("Active Loan Accounts", total_active_loans)
         col2.metric("Total Disbursement (Principal Amount)", f"₹{total_disbursed:,.2f}")
         col3.metric("Total Gold Vaulted (Net)", f"{total_gold_wt:.2f} g")
-    else:
-        st.info("No data available yet. Start by adding customers and loans.")
-    
-    st.subheader("📈 Live Master Monitoring Stream")
-    
-    if not df_parties.empty and not df_loans.empty:
+        
+        st.subheader("📈 Live Master Monitoring Stream")
         try:
-            # Merge loans with parties
             df_merged = df_loans.merge(df_parties[['id', 'name']], left_on='party_id', right_on='id', how='left')
             df_display = df_merged[['id_x', 'name', 'principal', 'interest_amount', 'total_payable', 'emi', 'status']].copy()
             df_display.columns = ['Loan ID', 'Customer Name', 'Principal/Disbursement Amount (₹)', 
@@ -818,7 +678,7 @@ elif choice == "🏠 Dashboard":
         except Exception as e:
             st.warning(f"Could not display dashboard data: {e}")
     else:
-        st.info("No loans or parties data available.")
+        st.info("No data available yet. Start by adding customers and loans.")
 
 elif choice == "👤 Party Master":
     st.header("👤 Customer Registration (Party Master)")
@@ -859,7 +719,7 @@ elif choice == "👤 Party Master":
                     st.success(f"✅ Successfully registered: {name} (ID: {new_id})")
                     st.rerun()
                 else:
-                    st.error("❌ Failed to save customer. Please check your Google Sheets connection.")
+                    st.error("❌ Failed to save customer. Please try again.")
             else:
                 st.error("Name and Mobile fields are required.")
 
@@ -913,7 +773,6 @@ elif choice == "✏️ Edit/Delete Party Profile":
         
         with tab_delete:
             st.warning(f"⚠️ Warning: You are about to permanently delete the profile of **{selected_row['name']}**.")
-            st.error("This will delete the customer profile. Make sure there are no open loans attached to this party.")
             
             # Check if customer has active loans
             df_loans = get_loans()
@@ -933,19 +792,292 @@ elif choice == "✏️ Edit/Delete Party Profile":
                     else:
                         st.error("Confirmation string does not match.")
 
-# Continue with other modules (Gold Loan Management, etc.)
-# [The rest of the modules remain similar but using the new data functions]
+# Continue with other modules...
+# [Gold Loan Management, Pledge Management, etc. follow the same pattern]
 
-# ... (continue with remaining modules)
+# ==========================================
+# 10. GOLD LOAN MANAGEMENT
+# ==========================================
 
-# Final note: This is a complete working implementation with:
-# 1. Google Sheets persistence
-# 2. Force reload functionality
-# 3. Backup and restore system
-# 4. Error handling and retry logic
-# 5. Data caching for performance
-# 6. Proper column initialization
+elif choice == "💰 Gold Loan Management":
+    conn = None  # Not using SQLite anymore
+    
+    if sub_choice == "💸 Loan Disbursement":
+        st.header("💸 Gold Loan Formulation (Disbursement = Principal)")
+        
+        df_parties = get_parties()
+        df_verified = df_parties[df_parties['kyc_status'] == 'Verified']
+        
+        if df_verified.empty:
+            st.warning("⚠️ No Verified Customers Available. Please verify a profile inside Party Management first.")
+        else:
+            party_options = {row['id']: row['name'] for _, row in df_verified.iterrows()}
+            
+            with st.form("disbursement_calculator_form"):
+                selected_party = st.selectbox("Select Verified Borrower Profile", list(party_options.keys()), 
+                                            format_func=lambda x: party_options[x])
+                
+                col1, col2 = st.columns(2)
+                with col1:
+                    st.markdown("#### 💎 Gold Details")
+                    gold_description = st.text_input("Description", placeholder="മാല, വളകൾ, മോതിരം")
+                    items_count = st.number_input("Count", min_value=1, value=1, step=1)
+                    gross_wt = st.number_input("Gross Weight (grams)", min_value=0.0, step=0.1)
+                    net_wt = st.number_input("Net Weight (grams)", min_value=0.0, step=0.1)
+                    purity = st.selectbox("Purity Karat", [24, 22, 20, 18], index=1)
+                    appraised_val = st.number_input("Appraisal Value (₹)", min_value=0.0)
+                    vault_id = st.text_input("Vault Storage ID Code")
+                    
+                    st.markdown("---")
+                    st.markdown("📷 **Attach Gold Photo**")
+                    gold_photo_data = st.file_uploader("Choose image", type=["jpg", "png", "jpeg"])
+                    
+                with col2:
+                    st.markdown("#### 📊 Calculation Terms")
+                    max_eligible = appraised_val * 0.75
+                    st.info(f"Regulatory 75% LTV Cap Limit: **₹{max_eligible:,.2f}**")
+                    
+                    principal = st.number_input("Disbursement Amount (₹)", min_value=0.0, value=40375.0)
+                    interest_rate = st.number_input("Interest Rate %", min_value=0.0, value=12.0)
+                    duration = st.number_input("Tenure (Months)", min_value=1, max_value=36, value=12)
+                    
+                    st.markdown("---")
+                    st.markdown("#### 🏷️ Service Fees")
+                    processing_fee = st.number_input("Processing Fee (₹)", min_value=0.0, value=500.0)
+                    admin_fee = st.number_input("Admin Fee (₹)", min_value=0.0, value=200.0)
+                    doc_fee = st.number_input("Documentation Fee (₹)", min_value=0.0, value=200.0)
+                    
+                    interest_amount = principal * (interest_rate / 100)
+                    total_payable = principal + interest_amount
+                    calculated_emi = total_payable / duration if duration > 0 else 0.0
+                    
+                    st.markdown("---")
+                    st.write(f"**Disbursement Amount:** ₹{principal:,.2f}")
+                    st.write(f"**Interest Amount:** ₹{interest_amount:,.2f}")
+                    st.write(f"**Total Payable:** ₹{total_payable:,.2f}")
+                    st.write(f"**EMI:** ₹{calculated_emi:,.2f}")
+                    
+                if st.form_submit_button("Finalize and Disburse"):
+                    if principal > max_eligible:
+                        st.error("Requested capital allocation exceeds the 75% LTV limit.")
+                    elif principal <= 0 or net_wt <= 0:
+                        st.error("Invalid entry constraints.")
+                    else:
+                        base64_image_str = ""
+                        if gold_photo_data is not None:
+                            bytes_data = gold_photo_data.read()
+                            base64_image_str = base64.b64encode(bytes_data).decode("utf-8")
+                        
+                        loan_data = {
+                            'party_id': selected_party,
+                            'principal': principal,
+                            'interest_rate': interest_rate,
+                            'duration_months': duration,
+                            'emi': calculated_emi,
+                            'processing_fee': processing_fee,
+                            'admin_fee': admin_fee,
+                            'documentation_fee': doc_fee,
+                            'interest_amount': interest_amount,
+                            'total_payable': total_payable,
+                            'gold_description': gold_description,
+                            'items_count': items_count,
+                            'gross_weight': gross_wt,
+                            'net_weight': net_wt,
+                            'purity_karat': purity,
+                            'appraised_value': appraised_val,
+                            'vault_id': vault_id,
+                            'gold_image_base64': base64_image_str
+                        }
+                        
+                        new_loan_id = add_loan(loan_data)
+                        if new_loan_id:
+                            st.success(f"✅ Loan Account #{new_loan_id} successfully created.")
+                            st.session_state['active_contract_loan_id'] = new_loan_id
+                            st.rerun()
+                        else:
+                            st.error("❌ Failed to create loan. Please try again.")
+            
+            if 'active_contract_loan_id' in st.session_state:
+                l_id = st.session_state['active_contract_loan_id']
+                df_loans = get_loans()
+                loan_row = df_loans[df_loans['id'] == l_id]
+                
+                if not loan_row.empty:
+                    loan_row = loan_row.iloc[0]
+                    df_parties = get_parties()
+                    party_row = df_parties[df_parties['id'] == loan_row['party_id']].iloc[0]
+                    
+                    tab_voucher, tab_fee_receipt = st.tabs(["📄 Agreement Form", "🖨️ Fee Receipt"])
+                    
+                    with tab_voucher:
+                        instant_html = generate_agreement_html(loan_row, party_row)
+                        st.download_button(label="📥 Download Agreement", data=instant_html, 
+                                         file_name=f"Agreement_Loan_{l_id}.html", mime="text/html")
+                    
+                    with tab_fee_receipt:
+                        fee_html = generate_fee_receipt_html(loan_row, party_row)
+                        st.download_button(label="📥 Download Fee Receipt", data=fee_html, 
+                                         file_name=f"Fee_Receipt_Loan_{l_id}.html", mime="text/html")
+    
+    elif sub_choice == "📊 Party Ledger":
+        st.header("📊 Customer Ledger Statements")
+        
+        df_loans = get_loans()
+        df_active = df_loans[df_loans['status'] == 'Active']
+        
+        if df_active.empty:
+            st.info("No active loan records open currently.")
+        else:
+            df_parties = get_parties()
+            df_active = df_active.merge(df_parties[['id', 'name']], left_on='party_id', right_on='id', how='left')
+            
+            loan_options = {row['id_x']: f"Loan #{row['id_x']} - Holder: {row['name']} (₹{row['principal']})" 
+                          for _, row in df_active.iterrows()}
+            selected_loan = st.selectbox("Select Target Portfolio File", list(loan_options.keys()), 
+                                       format_func=lambda x: loan_options[x])
+            
+            loan_row = df_loans[df_loans['id'] == selected_loan].iloc[0]
+            total_liability = float(loan_row['total_payable'] or 0.0)
+            
+            df_ledger = get_ledger()
+            df_loan_ledger = df_ledger[df_ledger['loan_id'] == selected_loan]
+            total_repaid_credits = df_loan_ledger[df_loan_ledger['transaction_type'].isin(['Repayment', 'Interest Settlement'])]['amount'].sum()
+            total_repaid_credits = float(total_repaid_credits or 0.0)
+            live_outstanding_balance = max(0.0, total_liability - total_repaid_credits)
+            
+            tab_post, tab_view, tab_print = st.tabs(["💳 Collection Repayment", "📑 View Ledger", "🖨️ Printable Sheet"])
+            
+            with tab_post:
+                if live_outstanding_balance <= 0.0:
+                    st.success("🎉 Already Repaid / Bill completely paid in full.")
+                else:
+                    with st.form("repayment_ledger_post_form"):
+                        repay_amt = st.number_input("Repayment Collected (₹)", min_value=0.0, 
+                                                   max_value=live_outstanding_balance, step=100.0)
+                        repay_date = st.date_input("Settlement Date")
+                        type_tx = st.selectbox("Allocation Type", ["Repayment", "Interest Settlement"])
+                        
+                        if st.form_submit_button("Post Entry"):
+                            if repay_amt > 0:
+                                add_ledger_entry({
+                                    'loan_id': selected_loan,
+                                    'transaction_type': type_tx,
+                                    'amount': repay_amt,
+                                    'transaction_date': str(repay_date)
+                                })
+                                
+                                if repay_amt >= live_outstanding_balance:
+                                    update_loan_status(selected_loan, 'Closed')
+                                
+                                st.success("✅ Repayment entry saved!")
+                                st.rerun()
+            
+            with tab_view:
+                col_m1, col_m2, col_m3 = st.columns(3)
+                col_m1.metric("Disbursement Amount", f"₹{loan_row['principal']:,.2f}")
+                col_m2.metric("Total Payable", f"₹{total_liability:,.2f}")
+                col_m3.metric("Outstanding Balance", f"₹{live_outstanding_balance:,.2f}")
+                
+                if not df_loan_ledger.empty:
+                    st.table(df_loan_ledger[['transaction_type', 'amount', 'transaction_date']])
+                else:
+                    st.info("No transactions yet.")
 
+# ==========================================
+# 11. OTHER MODULES (Placeholders)
+# ==========================================
+
+elif choice == "💍 Gold Pledge Management":
+    st.header("💍 Gold Pledge Inventory Vault Details")
+    
+    df_loans = get_loans()
+    df_active = df_loans[df_loans['status'] == 'Active']
+    
+    if df_active.empty:
+        st.info("No vaulted items found.")
+    else:
+        df_parties = get_parties()
+        df_display = df_active.merge(df_parties[['id', 'name']], left_on='party_id', right_on='id', how='left')
+        
+        for _, row in df_display.iterrows():
+            with st.container():
+                col_text, col_img = st.columns([2, 1])
+                with col_text:
+                    st.markdown(f"### 📦 Loan #{row['id_x']}")
+                    st.write(f"👤 **Owner:** {row['name']}")
+                    st.write(f"📝 **Description:** {row.get('gold_description', 'N/A')}")
+                    st.write(f"🔢 **Count:** {row.get('items_count', 0)} Nos | ⚖️ **Weight:** {row.get('net_weight', 0)}g")
+                    st.write(f"🔒 **Vault ID:** `{row.get('vault_id', 'N/A')}`")
+                with col_img:
+                    if row.get('gold_image_base64') and pd.notna(row['gold_image_base64']):
+                        img_bytes = base64.b64decode(row['gold_image_base64'])
+                        st.image(img_bytes, caption="Pledged Gold Asset", width=180)
+                st.markdown("---")
+
+elif choice == "📄 Loan Agreement (Malayalam)":
+    st.header("📄 Malayalam Legal Agreement Console")
+    
+    df_loans = get_loans()
+    if df_loans.empty:
+        st.info("No loan files available.")
+    else:
+        df_parties = get_parties()
+        df_merged = df_loans.merge(df_parties[['id', 'name']], left_on='party_id', right_on='id', how='left')
+        
+        contract_options = {row['id_x']: f"Loan #{row['id_x']} - {row['name']}" for _, row in df_merged.iterrows()}
+        target_contract = st.selectbox("Select Target Portfolio File", list(contract_options.keys()), 
+                                     format_func=lambda x: contract_options[x])
+        
+        loan_row = df_loans[df_loans['id'] == target_contract].iloc[0]
+        party_row = df_parties[df_parties['id'] == loan_row['party_id']].iloc[0]
+        
+        tab_contract_view, tab_receipt_view = st.tabs(["📜 Agreement Form", "🧾 Fee Receipt"])
+        
+        with tab_contract_view:
+            agreement_html = generate_agreement_html(loan_row, party_row)
+            st.download_button(label="📥 Download Agreement HTML", data=agreement_html, 
+                             file_name=f"Agreement_Loan_{loan_row['id']}.html", mime="text/html")
+        
+        with tab_receipt_view:
+            fee_html = generate_fee_receipt_html(loan_row, party_row)
+            st.download_button(label="📥 Download Fee Receipt HTML", data=fee_html, 
+                             file_name=f"Fee_Receipt_Loan_{loan_row['id']}.html", mime="text/html")
+
+elif choice == "📅 EMI Schedule":
+    st.header("📅 Monthly Recovery Projection Mapping (EMI Schedule)")
+    
+    df_loans = get_loans()
+    df_active = df_loans[df_loans['status'] == 'Active']
+    
+    if df_active.empty:
+        st.info("No active loan tracking matrices found.")
+    else:
+        df_parties = get_parties()
+        df_active = df_active.merge(df_parties[['id', 'name']], left_on='party_id', right_on='id', how='left')
+        
+        loan_options = {row['id_x']: f"Loan #{row['id_x']} - {row['name']} (EMI: ₹{row['emi']:,.2f})" 
+                       for _, row in df_active.iterrows()}
+        selected_sched = st.selectbox("Select Target Loan ID Schedule Map", list(loan_options.keys()), 
+                                     format_func=lambda x: loan_options[x])
+        
+        loan_row = df_loans[df_loans['id'] == selected_sched].iloc[0]
+        party_row = df_parties[df_parties['id'] == loan_row['party_id']].iloc[0]
+        
+        schedule_list = []
+        remaining = loan_row['total_payable']
+        
+        for month in range(1, loan_row['duration_months'] + 1):
+            remaining -= loan_row['emi']
+            current_rem = max(0.0, remaining)
+            display_rem = "Already Repaid" if current_rem < 0.01 else f"₹{current_rem:,.2f}"
+            
+            schedule_list.append({
+                "Installment": f"Month {month}",
+                "Payment Amount (₹)": f"₹{loan_row['emi']:,.2f}",
+                "Outstanding Balance": display_rem
+            })
+        
+        st.table(pd.DataFrame(schedule_list))
 
 
 

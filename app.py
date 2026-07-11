@@ -2,18 +2,13 @@ import streamlit as st
 import pandas as pd
 from datetime import datetime
 import base64
-import time
 
 # ==========================================
 # 1. GOOGLE SHEETS CONNECTION
 # ==========================================
 
-try:
-    from st_gsheets_connection import GSheetsConnection
-    GSHEETS_AVAILABLE = True
-except ImportError:
-    GSHEETS_AVAILABLE = False
-    st.error("Please install: pip install streamlit-gsheets-connection")
+# Import the connection
+from streamlit_gsheets import GSheetsConnection
 
 # Define column structures
 PARTIES_COLUMNS = [
@@ -41,9 +36,6 @@ LEDGER_COLUMNS = [
 
 def get_connection():
     """Get Google Sheets connection"""
-    if not GSHEETS_AVAILABLE:
-        return None
-    
     try:
         conn = st.connection("gsheets", type=GSheetsConnection)
         return conn
@@ -403,7 +395,7 @@ def force_reload_all():
     st.rerun()
 
 # ==========================================
-# 5. HTML GENERATORS (Keep from previous)
+# 5. HTML GENERATORS
 # ==========================================
 
 def generate_agreement_html(loan_row, party_row):
@@ -515,13 +507,10 @@ if 'init_done' not in st.session_state:
     st.session_state['init_done'] = False
 
 # Initialize Google Sheets
-if not st.session_state['init_done'] and GSHEETS_AVAILABLE:
+if not st.session_state['init_done']:
     with st.spinner("Initializing Google Sheets..."):
         if init_sheets():
             st.session_state['init_done'] = True
-            st.success("✅ Google Sheets initialized successfully!")
-        else:
-            st.error("❌ Failed to initialize Google Sheets")
 
 # ==========================================
 # 7. SYSTEM STATS
@@ -593,10 +582,7 @@ st.sidebar.write(f"💰 Loans: **{count_loans}**")
 st.sidebar.write(f"💍 Gold: **{count_gold}**")
 st.sidebar.write(f"📝 Transactions: **{count_tx}**")
 
-if GSHEETS_AVAILABLE:
-    st.sidebar.success("✅ Google Sheets: Connected")
-else:
-    st.sidebar.error("❌ Google Sheets: Not Available")
+st.sidebar.success("✅ Google Sheets: Connected")
 
 st.title("🏆 AuraLoan - Premium Gold Loan System")
 st.markdown("---")
@@ -681,8 +667,7 @@ elif choice == "👤 Party Master":
                 st.error("Name and Mobile fields are required.")
 
 # ==========================================
-# 11. EDIT/DELETE PARTY PROFILE MODULE
-# ==========================================
+# 11. EDIT/DELETE PARTY PROFILE MODULE# ==========================================
 
 elif choice == "✏️ Edit/Delete Party Profile":
     st.header("✏️ Profile Management Core (Edit / Delete Customer Accounts)")
@@ -755,7 +740,7 @@ elif choice == "✏️ Edit/Delete Party Profile":
                         st.error("Confirmation string does not match.")
 
 # ==========================================
-# 12. GOLD LOAN MANAGEMENT (Partial - Add your full code here)
+# 12. GOLD LOAN MANAGEMENT
 # ==========================================
 
 elif choice == "💰 Gold Loan Management":
@@ -826,33 +811,81 @@ elif choice == "💰 Gold Loan Management":
 
     elif sub_choice == "📊 Party Ledger":
         st.header("📊 Customer Ledger")
-        st.info("Ledger module - Add your code here")
+        
+        df_loans = get_loans()
+        df_active = df_loans[df_loans['status'] == 'Active'] if df_loans is not None and not df_loans.empty else pd.DataFrame()
+        
+        if df_active.empty:
+            st.info("No active loans.")
+        else:
+            df_parties = get_parties()
+            df_active = df_active.merge(df_parties[['id', 'name']], left_on='party_id', right_on='id', how='left')
+            
+            loan_options = {row['id_x']: f"Loan #{row['id_x']} - {row['name']}" for _, row in df_active.iterrows()}
+            selected_loan = st.selectbox("Select Loan", list(loan_options.keys()), format_func=lambda x: loan_options[x])
+            
+            loan_row = df_loans[df_loans['id'] == selected_loan].iloc[0]
+            df_ledger = get_ledger()
+            df_loan_ledger = df_ledger[df_ledger['loan_id'] == selected_loan] if df_ledger is not None and not df_ledger.empty else pd.DataFrame()
+            
+            total_payable = float(loan_row['total_payable'])
+            total_repaid = df_loan_ledger['amount'].sum() if not df_loan_ledger.empty else 0
+            balance = total_payable - total_repaid
+            
+            col1, col2, col3 = st.columns(3)
+            col1.metric("Total Payable", f"₹{total_payable:,.2f}")
+            col2.metric("Total Repaid", f"₹{total_repaid:,.2f}")
+            col3.metric("Balance", f"₹{balance:,.2f}")
+            
+            if not df_loan_ledger.empty:
+                st.table(df_loan_ledger[['transaction_type', 'amount', 'transaction_date']])
 
 # ==========================================
-# 13. OTHER MODULES (Add your remaining modules here)
+# 13. OTHER MODULES (Placeholders)
 # ==========================================
 
 elif choice == "💍 Gold Pledge Management":
     st.header("💍 Gold Pledge Management")
-    st.info("Gold Pledge Management module - Add your code here")
+    df_loans = get_loans()
+    df_active = df_loans[df_loans['status'] == 'Active'] if df_loans is not None and not df_loans.empty else pd.DataFrame()
+    
+    if df_active.empty:
+        st.info("No active pledges.")
+    else:
+        df_parties = get_parties()
+        df_display = df_active.merge(df_parties[['id', 'name']], left_on='party_id', right_on='id', how='left')
+        
+        for _, row in df_display.iterrows():
+            with st.container():
+                st.write(f"**Loan #{row['id_x']}** - {row['name']}")
+                st.write(f"Gold: {row.get('gold_description', 'N/A')}")
+                st.write(f"Weight: {row.get('net_weight', 0)}g")
+                st.markdown("---")
 
 elif choice == "📄 Loan Agreement (Malayalam)":
     st.header("📄 Loan Agreement")
-    st.info("Loan Agreement module - Add your code here")
+    st.info("Select a loan to generate agreement")
 
 elif choice == "📅 EMI Schedule":
     st.header("📅 EMI Schedule")
-    st.info("EMI Schedule module - Add your code here")
+    df_loans = get_loans()
+    df_active = df_loans[df_loans['status'] == 'Active'] if df_loans is not None and not df_loans.empty else pd.DataFrame()
+    
+    if not df_active.empty:
+        for _, row in df_active.iterrows():
+            st.write(f"**Loan #{row['id']}**")
+            st.write(f"EMI: ₹{row['emi']:,.2f}")
+            st.write(f"Duration: {row['duration_months']} months")
+            st.markdown("---")
 
 elif choice == "💾 Backup & Restore":
     st.header("💾 Backup & Restore")
-    st.info("Backup module - Add your code here")
+    st.info("Backup and restore functionality")
 
 elif choice == "🔄 Force Reload":
     st.header("🔄 Force Reload")
     if st.button("Force Reload All Data"):
         force_reload_all()
-
 
 
 

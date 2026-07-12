@@ -9,43 +9,79 @@ import json
 # 1. CONFIGURATION
 # ==========================================
 
-# Define all columns
-PARTIES_COLUMNS = [
-    'id', 'name', 'guardian_name', 'dob', 'mobile', 'whatsapp',
-    'address', 'pincode', 'pan_masked', 'occupation', 'qualification',
-    'kyc_status', 'created_at'
-]
+# Define all columns with proper data types
+PARTIES_COLUMNS = {
+    'id': 'int64',
+    'name': 'object',
+    'guardian_name': 'object',
+    'dob': 'object',
+    'mobile': 'object',  # Changed to object (string) to handle large numbers
+    'whatsapp': 'object',  # Changed to object (string)
+    'address': 'object',
+    'pincode': 'object',  # Changed to object (string)
+    'pan_masked': 'object',
+    'occupation': 'object',
+    'qualification': 'object',
+    'kyc_status': 'object',
+    'created_at': 'object'
+}
 
-LOANS_COLUMNS = [
-    'id', 'party_id', 'principal', 'interest_rate', 'duration_months',
-    'emi', 'processing_fee', 'admin_fee', 'documentation_fee',
-    'net_disbursed', 'interest_amount', 'total_payable',
-    'gold_description', 'items_count', 'gross_weight', 'net_weight',
-    'purity_karat', 'appraised_value', 'vault_id', 'gold_image_base64',
-    'status', 'disbursed_date'
-]
+LOANS_COLUMNS = {
+    'id': 'int64',
+    'party_id': 'int64',
+    'principal': 'float64',
+    'interest_rate': 'float64',
+    'duration_months': 'int64',
+    'emi': 'float64',
+    'processing_fee': 'float64',
+    'admin_fee': 'float64',
+    'documentation_fee': 'float64',
+    'net_disbursed': 'float64',
+    'interest_amount': 'float64',
+    'total_payable': 'float64',
+    'gold_description': 'object',
+    'items_count': 'int64',
+    'gross_weight': 'float64',
+    'net_weight': 'float64',
+    'purity_karat': 'int64',
+    'appraised_value': 'float64',
+    'vault_id': 'object',
+    'gold_image_base64': 'object',
+    'status': 'object',
+    'disbursed_date': 'object'
+}
 
-LEDGER_COLUMNS = [
-    'id', 'loan_id', 'transaction_type', 'amount', 'transaction_date'
-]
+LEDGER_COLUMNS = {
+    'id': 'int64',
+    'loan_id': 'int64',
+    'transaction_type': 'object',
+    'amount': 'float64',
+    'transaction_date': 'object'
+}
+
+def get_column_list(columns_dict):
+    """Get list of column names from dictionary"""
+    return list(columns_dict.keys())
 
 # ==========================================
 # 2. CSV FILE MANAGEMENT
 # ==========================================
 
-def ensure_csv_file(filename, columns):
+def ensure_csv_file(filename, columns_dict):
     """Create CSV file with headers if it doesn't exist"""
     try:
         if not os.path.exists(filename):
-            df = pd.DataFrame(columns=columns)
+            df = pd.DataFrame({col: pd.Series(dtype=dtype) for col, dtype in columns_dict.items()})
             df.to_csv(filename, index=False)
             print(f"✅ Created {filename}")
             return True
         
         # Check if file has proper headers
         df = pd.read_csv(filename)
+        columns = list(columns_dict.keys())
+        
         if df.empty:
-            df = pd.DataFrame(columns=columns)
+            df = pd.DataFrame({col: pd.Series(dtype=dtype) for col, dtype in columns_dict.items()})
             df.to_csv(filename, index=False)
             print(f"✅ Recreated {filename} with headers")
             return True
@@ -63,41 +99,78 @@ def ensure_csv_file(filename, columns):
         print(f"Error with {filename}: {e}")
         # Recreate the file
         try:
-            df = pd.DataFrame(columns=columns)
+            df = pd.DataFrame({col: pd.Series(dtype=dtype) for col, dtype in columns_dict.items()})
             df.to_csv(filename, index=False)
             return True
         except:
             return False
 
-def load_data(filename, columns):
+def load_data(filename, columns_dict):
     """Load data from CSV file"""
     try:
-        ensure_csv_file(filename, columns)
+        ensure_csv_file(filename, columns_dict)
         df = pd.read_csv(filename)
+        columns = list(columns_dict.keys())
         
         if df.empty:
-            return pd.DataFrame(columns=columns)
+            return pd.DataFrame({col: pd.Series(dtype=dtype) for col, dtype in columns_dict.items()})
         
         # Ensure all columns exist
         for col in columns:
             if col not in df.columns:
                 df[col] = None
         
-        # Convert id to int
-        if 'id' in df.columns:
-            df['id'] = pd.to_numeric(df['id'], errors='coerce').fillna(0).astype(int)
+        # Convert data types properly
+        for col, dtype in columns_dict.items():
+            if col in df.columns:
+                try:
+                    if dtype == 'int64':
+                        # Handle empty values
+                        df[col] = pd.to_numeric(df[col], errors='coerce').fillna(0).astype('int64')
+                    elif dtype == 'float64':
+                        df[col] = pd.to_numeric(df[col], errors='coerce').fillna(0.0).astype('float64')
+                    else:
+                        # For object type, convert to string and handle NaN
+                        df[col] = df[col].fillna('').astype('object')
+                except Exception as e:
+                    print(f"Error converting {col} to {dtype}: {e}")
+                    # If conversion fails, set to appropriate default
+                    if dtype == 'int64':
+                        df[col] = 0
+                    elif dtype == 'float64':
+                        df[col] = 0.0
+                    else:
+                        df[col] = ''
         
         return df
     except Exception as e:
         print(f"Error loading {filename}: {e}")
-        return pd.DataFrame(columns=columns)
+        return pd.DataFrame({col: pd.Series(dtype=dtype) for col, dtype in columns_dict.items()})
 
-def save_data(filename, df):
+def save_data(filename, df, columns_dict):
     """Save data to CSV file"""
     try:
         # Create backups folder
         if not os.path.exists('backups'):
             os.makedirs('backups')
+        
+        # Ensure all columns exist
+        for col in columns_dict.keys():
+            if col not in df.columns:
+                df[col] = None
+        
+        # Convert data types before saving
+        for col, dtype in columns_dict.items():
+            if col in df.columns:
+                try:
+                    if dtype == 'int64':
+                        df[col] = pd.to_numeric(df[col], errors='coerce').fillna(0).astype('int64')
+                    elif dtype == 'float64':
+                        df[col] = pd.to_numeric(df[col], errors='coerce').fillna(0.0).astype('float64')
+                    else:
+                        df[col] = df[col].fillna('').astype('object')
+                except:
+                    pass
         
         # Save main file
         df.to_csv(filename, index=False)
@@ -132,12 +205,15 @@ def get_ledger():
         st.session_state['ledger_cache'] = load_data("ledger.csv", LEDGER_COLUMNS)
     return st.session_state['ledger_cache']
 
-def get_next_id(df):
+def get_next_id(df, id_column='id'):
     """Get next available ID"""
-    if df.empty or 'id' not in df.columns:
+    if df.empty or id_column not in df.columns:
         return 1
     try:
-        return int(df['id'].max()) + 1
+        max_id = df[id_column].max()
+        if pd.isna(max_id):
+            return 1
+        return int(max_id) + 1
     except:
         return 1
 
@@ -149,23 +225,37 @@ def add_party(data):
         
         new_row = {
             'id': new_id,
-            'name': data.get('name', ''),
-            'guardian_name': data.get('guardian_name', ''),
+            'name': str(data.get('name', '')),
+            'guardian_name': str(data.get('guardian_name', '')),
             'dob': str(data.get('dob', '')),
-            'mobile': data.get('mobile', ''),
-            'whatsapp': data.get('whatsapp', ''),
-            'address': data.get('address', ''),
-            'pincode': data.get('pincode', ''),
-            'pan_masked': data.get('pan_masked', ''),
-            'occupation': data.get('occupation', ''),
-            'qualification': data.get('qualification', ''),
-            'kyc_status': data.get('kyc_status', 'Pending'),
+            'mobile': str(data.get('mobile', '')),  # Convert to string
+            'whatsapp': str(data.get('whatsapp', '')),  # Convert to string
+            'address': str(data.get('address', '')),
+            'pincode': str(data.get('pincode', '')),  # Convert to string
+            'pan_masked': str(data.get('pan_masked', '')),
+            'occupation': str(data.get('occupation', '')),
+            'qualification': str(data.get('qualification', '')),
+            'kyc_status': str(data.get('kyc_status', 'Pending')),
             'created_at': str(datetime.now().date())
         }
         
-        df = pd.concat([df, pd.DataFrame([new_row])], ignore_index=True)
+        # Create new row as DataFrame with proper types
+        new_df = pd.DataFrame([new_row])
+        for col, dtype in PARTIES_COLUMNS.items():
+            if col in new_df.columns:
+                try:
+                    if dtype == 'int64':
+                        new_df[col] = pd.to_numeric(new_df[col], errors='coerce').fillna(0).astype('int64')
+                    elif dtype == 'float64':
+                        new_df[col] = pd.to_numeric(new_df[col], errors='coerce').fillna(0.0).astype('float64')
+                    else:
+                        new_df[col] = new_df[col].fillna('').astype('object')
+                except:
+                    pass
         
-        if save_data("parties.csv", df):
+        df = pd.concat([df, new_df], ignore_index=True)
+        
+        if save_data("parties.csv", df, PARTIES_COLUMNS):
             st.session_state['parties_cache'] = df
             return new_id
         return None
@@ -192,21 +282,34 @@ def add_loan(data):
             'net_disbursed': float(data.get('principal', 0)),
             'interest_amount': float(data.get('interest_amount', 0)),
             'total_payable': float(data.get('total_payable', 0)),
-            'gold_description': data.get('gold_description', ''),
+            'gold_description': str(data.get('gold_description', '')),
             'items_count': int(data.get('items_count', 0)),
             'gross_weight': float(data.get('gross_weight', 0)),
             'net_weight': float(data.get('net_weight', 0)),
             'purity_karat': int(data.get('purity_karat', 22)),
             'appraised_value': float(data.get('appraised_value', 0)),
-            'vault_id': data.get('vault_id', ''),
-            'gold_image_base64': data.get('gold_image_base64', ''),
+            'vault_id': str(data.get('vault_id', '')),
+            'gold_image_base64': str(data.get('gold_image_base64', '')),
             'status': 'Active',
             'disbursed_date': str(datetime.now().date())
         }
         
-        df = pd.concat([df, pd.DataFrame([new_row])], ignore_index=True)
+        new_df = pd.DataFrame([new_row])
+        for col, dtype in LOANS_COLUMNS.items():
+            if col in new_df.columns:
+                try:
+                    if dtype == 'int64':
+                        new_df[col] = pd.to_numeric(new_df[col], errors='coerce').fillna(0).astype('int64')
+                    elif dtype == 'float64':
+                        new_df[col] = pd.to_numeric(new_df[col], errors='coerce').fillna(0.0).astype('float64')
+                    else:
+                        new_df[col] = new_df[col].fillna('').astype('object')
+                except:
+                    pass
         
-        if save_data("loans.csv", df):
+        df = pd.concat([df, new_df], ignore_index=True)
+        
+        if save_data("loans.csv", df, LOANS_COLUMNS):
             st.session_state['loans_cache'] = df
             # Add to ledger
             add_ledger_entry({
@@ -230,14 +333,15 @@ def add_ledger_entry(data):
         new_row = {
             'id': new_id,
             'loan_id': int(data.get('loan_id', 0)),
-            'transaction_type': data.get('transaction_type', ''),
+            'transaction_type': str(data.get('transaction_type', '')),
             'amount': float(data.get('amount', 0)),
-            'transaction_date': data.get('transaction_date', str(datetime.now().date()))
+            'transaction_date': str(data.get('transaction_date', str(datetime.now().date())))
         }
         
-        df = pd.concat([df, pd.DataFrame([new_row])], ignore_index=True)
+        new_df = pd.DataFrame([new_row])
+        df = pd.concat([df, new_df], ignore_index=True)
         
-        if save_data("ledger.csv", df):
+        if save_data("ledger.csv", df, LEDGER_COLUMNS):
             st.session_state['ledger_cache'] = df
             return new_id
         return None
@@ -255,9 +359,13 @@ def update_party(party_id, data):
         
         for key, value in data.items():
             if key in df.columns:
-                df.loc[mask, key] = value
+                # Convert all text fields to string
+                if key in ['name', 'guardian_name', 'mobile', 'whatsapp', 'address', 'pincode', 'pan_masked', 'occupation', 'qualification', 'kyc_status']:
+                    df.loc[mask, key] = str(value)
+                else:
+                    df.loc[mask, key] = value
         
-        if save_data("parties.csv", df):
+        if save_data("parties.csv", df, PARTIES_COLUMNS):
             st.session_state['parties_cache'] = df
             return True
         return False
@@ -271,7 +379,7 @@ def delete_party(party_id):
         df = get_parties()
         df = df[df['id'] != party_id]
         
-        if save_data("parties.csv", df):
+        if save_data("parties.csv", df, PARTIES_COLUMNS):
             st.session_state['parties_cache'] = df
             return True
         return False
@@ -287,9 +395,9 @@ def update_loan_status(loan_id, status):
         if not mask.any():
             return False
         
-        df.loc[mask, 'status'] = status
+        df.loc[mask, 'status'] = str(status)
         
-        if save_data("loans.csv", df):
+        if save_data("loans.csv", df, LOANS_COLUMNS):
             st.session_state['loans_cache'] = df
             return True
         return False
@@ -454,13 +562,6 @@ st.markdown("""
         border: 1px solid #E3C16F !important;
         box-shadow: 0px 2px 4px rgba(227, 193, 111, 0.1);
     }
-    .data-count {
-        background-color: #FFFDF7;
-        padding: 10px;
-        border-radius: 5px;
-        border-left: 4px solid #E3C16F;
-        margin-bottom: 10px;
-    }
     </style>
 """, unsafe_allow_html=True)
 
@@ -510,7 +611,6 @@ if choice == "🏠 Dashboard":
     df_parties = get_parties()
     df_loans = get_loans()
     
-    # Show what's in the system
     col1, col2, col3 = st.columns(3)
     col1.metric("Total Customers", len(df_parties))
     col2.metric("Total Loans", len(df_loans))
@@ -521,12 +621,6 @@ if choice == "🏠 Dashboard":
         st.dataframe(df_parties[['id', 'name', 'mobile', 'kyc_status', 'created_at']].tail(5), use_container_width=True)
     else:
         st.info("No customers yet. Go to 'Party Master' to add your first customer!")
-    
-    if not df_loans.empty:
-        st.subheader("📋 Recent Loans")
-        st.dataframe(df_loans[['id', 'party_id', 'principal', 'status', 'disbursed_date']].tail(5), use_container_width=True)
-    else:
-        st.info("No loans yet. Go to 'Gold Loan Management' to create your first loan!")
 
 # ==========================================
 # 9. PARTY MASTER
@@ -576,7 +670,6 @@ elif choice == "👤 Party Master":
             else:
                 st.error("Name and Mobile are required!")
     
-    # Show existing parties
     st.markdown("---")
     st.subheader("📋 Existing Customers")
     df_parties = get_parties()
@@ -611,13 +704,13 @@ elif choice == "✏️ Edit/Delete Party Profile":
                     with col1:
                         edit_name = st.text_input("Name", value=row['name'])
                         edit_guardian = st.text_input("Father/Husband Name", value=row.get('guardian_name', ''))
-                        edit_mobile = st.text_input("Mobile", value=row['mobile'])
-                        edit_whatsapp = st.text_input("WhatsApp", value=row.get('whatsapp', ''))
+                        edit_mobile = st.text_input("Mobile", value=str(row['mobile']))  # Convert to string
+                        edit_whatsapp = st.text_input("WhatsApp", value=str(row.get('whatsapp', '')))  # Convert to string
                     with col2:
                         edit_occupation = st.text_input("Occupation", value=row.get('occupation', ''))
                         edit_qualification = st.text_input("Qualification", value=row.get('qualification', ''))
                         edit_address = st.text_area("Address", value=row.get('address', ''))
-                        edit_pincode = st.text_input("Pincode", value=row.get('pincode', ''))
+                        edit_pincode = st.text_input("Pincode", value=str(row.get('pincode', '')))  # Convert to string
                         edit_kyc = st.selectbox("KYC Status", ["Pending", "Verified", "Suspended"], 
                                                index=["Pending", "Verified", "Suspended"].index(row['kyc_status']))
                     
@@ -793,9 +886,9 @@ elif choice == "💾 Backup & Restore":
         df_p = get_parties()
         df_l = get_loans()
         df_led = get_ledger()
-        save_data("backup_parties.csv", df_p)
-        save_data("backup_loans.csv", df_l)
-        save_data("backup_ledger.csv", df_led)
+        save_data("backup_parties.csv", df_p, PARTIES_COLUMNS)
+        save_data("backup_loans.csv", df_l, LOANS_COLUMNS)
+        save_data("backup_ledger.csv", df_led, LEDGER_COLUMNS)
         st.success("✅ Backup created!")
     
     if st.button("📥 Restore from Backup"):
@@ -803,9 +896,9 @@ elif choice == "💾 Backup & Restore":
             df_p = load_data("backup_parties.csv", PARTIES_COLUMNS)
             df_l = load_data("backup_loans.csv", LOANS_COLUMNS)
             df_led = load_data("backup_ledger.csv", LEDGER_COLUMNS)
-            save_data("parties.csv", df_p)
-            save_data("loans.csv", df_l)
-            save_data("ledger.csv", df_led)
+            save_data("parties.csv", df_p, PARTIES_COLUMNS)
+            save_data("loans.csv", df_l, LOANS_COLUMNS)
+            save_data("ledger.csv", df_led, LEDGER_COLUMNS)
             force_reload()
             st.success("✅ Restored from backup!")
         else:

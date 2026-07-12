@@ -10,33 +10,61 @@ from streamlit_gsheets import GSheetsConnection
 conn = st.connection("gsheets", type=GSheetsConnection)
 
 # ==========================================
-# HELPER FUNCTIONS
+# LOAD ALL DATA
 # ==========================================
-def get_data(sheet_name):
-    """Read data from a sheet"""
+@st.cache_data(ttl=10)
+def load_data():
     try:
-        data = conn.read(worksheet=sheet_name)
-        return data.dropna(how='all') if not data.empty else pd.DataFrame()
+        parties = conn.read(worksheet="Parties")
+        if parties.empty:
+            parties = pd.DataFrame(columns=['id','name','guardian_name','dob','mobile','whatsapp',
+                                           'address','pincode','pan_masked','occupation','qualification',
+                                           'kyc_status','created_at'])
     except:
-        return pd.DataFrame()
+        parties = pd.DataFrame(columns=['id','name','guardian_name','dob','mobile','whatsapp',
+                                       'address','pincode','pan_masked','occupation','qualification',
+                                       'kyc_status','created_at'])
+    try:
+        loans = conn.read(worksheet="Loans")
+        if loans.empty:
+            loans = pd.DataFrame(columns=['id','party_id','party_name','principal','interest_rate',
+                                         'duration_months','emi','processing_fee','admin_fee',
+                                         'documentation_fee','net_disbursed','interest_amount',
+                                         'total_payable','gold_description','items_count','gross_weight',
+                                         'net_weight','purity_karat','appraised_value','vault_id',
+                                         'gold_image_base64','status','disbursed_date','created_at'])
+    except:
+        loans = pd.DataFrame(columns=['id','party_id','party_name','principal','interest_rate',
+                                     'duration_months','emi','processing_fee','admin_fee',
+                                     'documentation_fee','net_disbursed','interest_amount',
+                                     'total_payable','gold_description','items_count','gross_weight',
+                                     'net_weight','purity_karat','appraised_value','vault_id',
+                                     'gold_image_base64','status','disbursed_date','created_at'])
+    try:
+        ledger = conn.read(worksheet="Ledger")
+        if ledger.empty:
+            ledger = pd.DataFrame(columns=['id','loan_id','transaction_type','amount',
+                                          'transaction_date','created_at'])
+    except:
+        ledger = pd.DataFrame(columns=['id','loan_id','transaction_type','amount',
+                                      'transaction_date','created_at'])
+    return parties, loans, ledger
 
-def save_data(sheet_name, df):
-    """Save data to a sheet"""
-    conn.update(worksheet=sheet_name, data=df)
+parties_df, loans_df, ledger_df = load_data()
 
-def get_next_id(df):
-    """Get next ID"""
-    if df.empty or 'id' not in df.columns:
-        return 1
+# ==========================================
+# SAVE FUNCTIONS
+# ==========================================
+def save_all():
+    conn.update(worksheet="Parties", data=parties_df)
+    conn.update(worksheet="Loans", data=loans_df)
+    conn.update(worksheet="Ledger", data=ledger_df)
+    load_data.clear()
+
+def next_id(df):
+    if df.empty or 'id' not in df.columns: return 1
     ids = pd.to_numeric(df['id'], errors='coerce').dropna()
     return int(ids.max()) + 1 if not ids.empty else 1
-
-# ==========================================
-# LOAD DATA
-# ==========================================
-parties_df = get_data("Parties")
-loans_df = get_data("Loans")
-ledger_df = get_data("Ledger")
 
 # ==========================================
 # UI SETUP
@@ -56,17 +84,16 @@ st.markdown("""
 """, unsafe_allow_html=True)
 
 # Stats
-active_loans_count = len(loans_df[loans_df['status'] == 'Active']) if not loans_df.empty else 0
-total_disbursed = pd.to_numeric(loans_df['principal'], errors='coerce').sum() if not loans_df.empty else 0
+active_count = len(loans_df[loans_df['status']=='Active']) if not loans_df.empty and 'status' in loans_df.columns else 0
+total_disb = pd.to_numeric(loans_df['principal'], errors='coerce').sum() if not loans_df.empty else 0
 total_gold = pd.to_numeric(loans_df[loans_df['status']=='Active']['net_weight'], errors='coerce').sum() if not loans_df.empty else 0
 
 # Sidebar
 st.sidebar.title("💎 AuraLoan")
 menu = st.sidebar.selectbox("Menu", ["Dashboard", "Add Customer", "New Loan", "View Loans", "Repayments", "Agreements"])
-
 st.sidebar.markdown("---")
-st.sidebar.metric("Active Loans", active_loans_count)
-st.sidebar.metric("Total Disbursed", f"₹{total_disbursed:,.0f}")
+st.sidebar.metric("Active Loans", active_count)
+st.sidebar.metric("Total Disbursed", f"₹{total_disb:,.0f}")
 st.sidebar.metric("Gold in Vault", f"{total_gold:.1f}g")
 
 # ==========================================
@@ -74,16 +101,15 @@ st.sidebar.metric("Gold in Vault", f"{total_gold:.1f}g")
 # ==========================================
 if menu == "Dashboard":
     st.title("📊 Dashboard")
-    
     col1, col2, col3 = st.columns(3)
-    col1.metric("Active Loans", active_loans_count)
-    col2.metric("Total Disbursed", f"₹{total_disbursed:,.0f}")
+    col1.metric("Active Loans", active_count)
+    col2.metric("Total Disbursed", f"₹{total_disb:,.0f}")
     col3.metric("Gold in Vault", f"{total_gold:.1f}g")
     
     if not loans_df.empty:
         st.subheader("All Loans")
-        display = loans_df[['id', 'party_name', 'principal', 'status']].copy()
-        display.columns = ['Loan ID', 'Customer', 'Amount', 'Status']
+        display = loans_df[['id','party_name','principal','status']]
+        display.columns = ['Loan ID','Customer','Amount','Status']
         st.dataframe(display, use_container_width=True)
 
 # ==========================================
@@ -107,7 +133,8 @@ elif menu == "Add Customer":
         
         if st.form_submit_button("Register"):
             if name and mobile:
-                new_id = get_next_id(parties_df)
+                global parties_df
+                new_id = next_id(parties_df)
                 new_row = pd.DataFrame([{
                     'id': new_id, 'name': name, 'guardian_name': guardian,
                     'dob': str(dob), 'mobile': mobile, 'whatsapp': '',
@@ -116,7 +143,7 @@ elif menu == "Add Customer":
                     'kyc_status': kyc, 'created_at': str(datetime.now().date())
                 }])
                 parties_df = pd.concat([parties_df, new_row], ignore_index=True) if not parties_df.empty else new_row
-                save_data("Parties", parties_df)
+                save_all()
                 st.success(f"✅ {name} registered!")
                 st.rerun()
             else:
@@ -131,13 +158,13 @@ elif menu == "New Loan":
     if parties_df.empty:
         st.warning("Register a customer first!")
     else:
-        verified = parties_df[parties_df['kyc_status'] == 'Verified']
+        verified = parties_df[parties_df['kyc_status']=='Verified']
         if verified.empty:
-            st.warning("No verified customers!")
+            st.warning("No verified customers! Verify a customer first.")
         else:
             with st.form("loan_form"):
-                customer = st.selectbox("Select Customer", verified['id'].tolist(), 
-                                       format_func=lambda x: f"{verified[verified['id']==x]['name'].values[0]} (ID:{x})")
+                customer = st.selectbox("Select Customer", verified['id'].tolist(),
+                    format_func=lambda x: f"{verified[verified['id']==x]['name'].values[0]} (ID:{x})")
                 
                 col1, col2 = st.columns(2)
                 with col1:
@@ -148,7 +175,7 @@ elif menu == "New Loan":
                     purity = st.selectbox("Purity", [24, 22, 20, 18])
                     appraised = st.number_input("Appraised Value (₹)", 0.0, 10000000.0, 50000.0)
                     vault = st.text_input("Vault ID")
-                    photo = st.file_uploader("Gold Photo", type=['jpg', 'png', 'jpeg'])
+                    photo = st.file_uploader("Gold Photo", type=['jpg','png','jpeg'])
                     
                 with col2:
                     st.subheader("Loan Terms")
@@ -176,7 +203,8 @@ elif menu == "New Loan":
                     cname = verified[verified['id']==customer]['name'].values[0]
                     today = str(datetime.now().date())
                     
-                    new_id = get_next_id(loans_df)
+                    global loans_df, ledger_df
+                    new_id = next_id(loans_df)
                     new_loan = pd.DataFrame([{
                         'id': new_id, 'party_id': customer, 'party_name': cname,
                         'principal': principal, 'interest_rate': rate,
@@ -188,14 +216,11 @@ elif menu == "New Loan":
                         'gross_weight': 0, 'net_weight': net_wt,
                         'purity_karat': purity, 'appraised_value': appraised,
                         'vault_id': vault, 'gold_image_base64': photo_b64,
-                        'status': 'Active', 'disbursed_date': today,
-                        'created_at': today
+                        'status': 'Active', 'disbursed_date': today, 'created_at': today
                     }])
                     loans_df = pd.concat([loans_df, new_loan], ignore_index=True) if not loans_df.empty else new_loan
-                    save_data("Loans", loans_df)
                     
-                    # Add ledger entry
-                    ledger_id = get_next_id(ledger_df)
+                    ledger_id = next_id(ledger_df)
                     new_ledger = pd.DataFrame([{
                         'id': ledger_id, 'loan_id': new_id,
                         'transaction_type': 'Disbursement',
@@ -203,8 +228,8 @@ elif menu == "New Loan":
                         'created_at': today
                     }])
                     ledger_df = pd.concat([ledger_df, new_ledger], ignore_index=True) if not ledger_df.empty else new_ledger
-                    save_data("Ledger", ledger_df)
                     
+                    save_all()
                     st.success(f"✅ Loan #{new_id} created!")
                     st.rerun()
 
@@ -217,8 +242,8 @@ elif menu == "View Loans":
     if loans_df.empty:
         st.info("No loans yet")
     else:
-        status_filter = st.selectbox("Filter", ["All", "Active", "Closed"])
-        filtered = loans_df if status_filter == "All" else loans_df[loans_df['status'] == status_filter]
+        filter_status = st.selectbox("Filter", ["All","Active","Closed"])
+        filtered = loans_df if filter_status=="All" else loans_df[loans_df['status']==filter_status]
         
         for _, loan in filtered.iterrows():
             with st.expander(f"Loan #{loan['id']} - {loan['party_name']} - ₹{loan['principal']} ({loan['status']})"):
@@ -234,7 +259,6 @@ elif menu == "View Loans":
                     st.write(f"**Weight:** {loan['net_weight']}g")
                     st.write(f"**Purity:** {loan['purity_karat']}K")
                     st.write(f"**Vault:** {loan['vault_id']}")
-                    st.write(f"**Date:** {loan['disbursed_date']}")
 
 # ==========================================
 # REPAYMENTS
@@ -245,23 +269,20 @@ elif menu == "Repayments":
     if loans_df.empty:
         st.info("No loans")
     else:
-        active = loans_df[loans_df['status'] == 'Active']
+        active = loans_df[loans_df['status']=='Active']
         if active.empty:
             st.info("No active loans")
         else:
             loan_sel = st.selectbox("Select Loan", active['id'].tolist(),
-                                   format_func=lambda x: f"Loan #{x} - {active[active['id']==x]['party_name'].values[0]}")
+                format_func=lambda x: f"Loan #{x} - {active[active['id']==x]['party_name'].values[0]}")
             
             loan = active[active['id']==loan_sel].iloc[0]
             total_payable = float(loan['total_payable'])
             
-            # Calculate paid
             if not ledger_df.empty:
-                loan_ledger = ledger_df[ledger_df['loan_id'].astype(str) == str(loan_sel)]
-                paid = pd.to_numeric(loan_ledger['amount'], errors='coerce').sum()
+                paid = ledger_df[ledger_df['loan_id'].astype(str)==str(loan_sel)]['amount'].astype(float).sum()
             else:
                 paid = 0
-                
             balance = total_payable - paid
             
             col1, col2, col3 = st.columns(3)
@@ -275,21 +296,20 @@ elif menu == "Repayments":
                     date = st.date_input("Date")
                     
                     if st.form_submit_button("Record Payment"):
-                        ledger_id = get_next_id(ledger_df)
+                        global ledger_df, loans_df
+                        ledger_id = next_id(ledger_df)
                         new_entry = pd.DataFrame([{
                             'id': ledger_id, 'loan_id': loan_sel,
                             'transaction_type': 'Repayment',
-                            'amount': amount,
-                            'transaction_date': str(date),
+                            'amount': amount, 'transaction_date': str(date),
                             'created_at': str(datetime.now().date())
                         }])
                         ledger_df = pd.concat([ledger_df, new_entry], ignore_index=True) if not ledger_df.empty else new_entry
-                        save_data("Ledger", ledger_df)
                         
                         if amount >= balance:
-                            loans_df.loc[loans_df['id'] == loan_sel, 'status'] = 'Closed'
-                            save_data("Loans", loans_df)
+                            loans_df.loc[loans_df['id']==loan_sel, 'status'] = 'Closed'
                         
+                        save_all()
                         st.success("✅ Payment recorded!")
                         st.rerun()
 
@@ -303,7 +323,7 @@ elif menu == "Agreements":
         st.info("No loans")
     else:
         loan_sel = st.selectbox("Select Loan", loans_df['id'].tolist(),
-                               format_func=lambda x: f"Loan #{x} - {loans_df[loans_df['id']==x]['party_name'].values[0]}")
+            format_func=lambda x: f"Loan #{x} - {loans_df[loans_df['id']==x]['party_name'].values[0]}")
         
         loan = loans_df[loans_df['id']==loan_sel].iloc[0]
         party = parties_df[parties_df['id'].astype(str)==str(loan['party_id'])]
@@ -316,10 +336,7 @@ elif menu == "Agreements":
                 <p><b>Agreement No:</b> #{loan['id']} | <b>Date:</b> {loan['disbursed_date']}</p>
                 <hr>
                 <h3>Customer Details</h3>
-                <p><b>Name:</b> {party['name']}<br>
-                <b>Mobile:</b> {party['mobile']}<br>
-                <b>Address:</b> {party.get('address', 'N/A')}</p>
-                
+                <p><b>Name:</b> {party['name']}<br><b>Mobile:</b> {party['mobile']}</p>
                 <h3>Loan Details</h3>
                 <table class="agreement-table">
                     <tr><th>Item</th><th>Details</th></tr>
@@ -329,14 +346,10 @@ elif menu == "Agreements":
                     <tr><td>EMI</td><td>₹{loan['emi']}</td></tr>
                     <tr><td>Total Payable</td><td>₹{loan['total_payable']}</td></tr>
                 </table>
-                
                 <h3>Gold Details</h3>
-                <p><b>Description:</b> {loan['gold_description']}<br>
-                <b>Weight:</b> {loan['net_weight']}g | <b>Purity:</b> {loan['purity_karat']}K<br>
-                <b>Vault:</b> {loan['vault_id']}</p>
+                <p>{loan['gold_description']} | {loan['net_weight']}g | {loan['purity_karat']}K</p>
             </div>
             """
-            
             st.markdown(agreement, unsafe_allow_html=True)
             st.download_button("Download Agreement", agreement, f"agreement_{loan['id']}.html", "text/html")
 

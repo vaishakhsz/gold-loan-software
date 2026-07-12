@@ -1,21 +1,22 @@
 import streamlit as st
 import pandas as pd
 import gspread
-from oauth2client.service_account import ServiceAccountCredentials
+# Modern, native auth engine officially supported by gspread
+from google.oauth2.service_account import Credentials
 from datetime import datetime
 import base64
 
-# ==========================================
-# 1. SECURE GOOGLE SHEETS STORAGE CONFIGURATION
-# ==========================================
+# ==============================================================================
+# 1. SECURE GOOGLE SHEETS STORAGE & AUTH CONFIGURATION
+# ==============================================================================
 SPREADSHEET_ID = "1F5u2D9AgvPOB6vS6BLABF4wwq0yj5XPQYddyKIcFSSU"
 
-# Secure Service Account Credentials Mapping
+# Secure Service Account Credentials Mapping (Dynamic \n Processing)
 CREDENTIALS_DICT = {
     "type": "service_account",
     "project_id": "goldloan-502122",
     "private_key_id": "9e9fa7bf45e3e09f45174081c9f31b4250c0f8d6",
-    # Automatically convert the text string escaping \n into proper system breaks
+    # Replaces text-escaped '\n' configurations with actual cryptographic newline formats
     "private_key": "-----BEGIN PRIVATE KEY-----\nMIIEvQIBADANBgkqhkiG9w0BAQEFAASCBKcwggSjAgEAAoIBAQDDlKK0EiZYTpLq\nNJ3+EIlB63dADeFLvE2CXRc/zF/d6QE9BR1JdVbt79uT7rW6qHZuBF/z/v6/IDBL\nYjJybwvjM2vTC6Hr2ILBeV9hiSoJsC0zGUUaud/sTVoCgeUcs34I/M7b52aKZjmv\nw0OWGwgMmtGlE7xykZJPOjIfYQ03Qh8Qd/m7UPxplFgJ+8pQztbM6yWpw+Eqv8YF\nq/ixj26o0Z6p3bHoOgALJCb5LOlZF7i8LgE5jRTVAhVJDLplbJ8IpHgkVPUoJvpr\nS01KpgKQfoPnplr37CfGwKop/oD231jp99lsEOLSB8vwBnazTEbmnAeCxZC8ot89\ngMkb2W2ZAgMBAAECggEAUGAkIWaYFZBs9g0bpM686bdP8aYCobJIFDwXkuN1vmfE\nV4Rjjc3IJM5+6aOfUY9r5DiuCkMQBBHBZyl62+Zg90UpmbjdGWSID+TGWvoYqZSa\nbraC3MHokV8Uj5U8R/hH4n+qr1rAnD34lQ/lFaoUO8HgSDv9JQRIIYEkGhszaDJv\nUOcqNmgwplZLh43BFX3ZXwmnI+j4KKGlYo5LZxlRoMBfDXUzbmzs0hHWdNAZ5yyV\n6GKUj6wP094OM10Tg/PE4/4zg+BnPRncCoqb+DmTmfojZAnZDoEWrMumt0FnE6Id\jskrZuj0f5pWZh6Lc9oyuSDZQIL1amKJWdzKu8cgxQKBgQDg2IvvCFuLyeUvRzDr\nVfYp3dk+N/G2PshcspEpc+E+mPIDnb3Z42FI5MPdalGZkYX67yS3ZZXG8py/Cd+u\nSIXMRe3jYAcuanQHqu8ahCscNkEn3XGqAMTrPZK6eulepcRoWZYyf9rB9mWgyepb\nbzZmq38JUZGgMQP8gWkdOLTDHwKBgQDergcGjKZFjSF/OG8aX+yF/iAwQfFhtAfu\nWwtkiIamNZbuiDEO/YPGmu42RovciZni8AAzue9rdv1cPZEldm/K9Y4Q0RRTnF+R\nhS9WzRS2ZOgnEQJZ/Z/1aRjDfHn4XHFlX2n3mdi8t3y80bb+47n02CQbznszJ1VH\n7AGTdC6wRwKBgQCiaIgbLmRBwqGC1t9k/YCDmTVUFcDILO0419q2oHcwafVV21jI\ny873ghZgFm2+iTjHmnlg50WaoJ/L9evVzZinhlNgi3pkcoxBBZ0UACfLhvzlOLTj\nYQ7cBGu5uxJaRU5rOVqeO2/d7oZV78MSLHCVFIb8SijwFreUaj1s2ArpbQKBgHg1\ntD854Gy9gm6+VWQEkpfHFzNV9evLl1h6N80+0omZdnAwf2NbQi8N5jjQnqIgej2D\nWGiUIIaABsgryFZT+Ie1RcsYQ4Pbb9AL+QE/1sWb9aNZUE6qVxbRdHfbk7CanvCd\nsIPkvpcp6qG4CLTS1MkzgVKthd6YhjY8VqF2X9nzAoGADHYa8Pn0ND8N9w65o3Ji\nEhuevmqIdXkiuRXeCjPz7a1WzVeRn1r+Hy77ZjBXRusNFH6WCA6vN6i7Kf1PbM1S\ntTzrFx3BjY5K160tkpffDTHf71g1O88j0Uc9eZsZLwRpsgpey4ORjVhDFpu4Pnld\n7Q5HshnMj5ZUzSY5dqPIMjE=\n-----END PRIVATE KEY-----\n".replace('\\n', '\n'),
     "client_email": "goldloan@goldloan-502122.iam.gserviceaccount.com",
     "client_id": "118054610595093839439",
@@ -26,8 +27,8 @@ CREDENTIALS_DICT = {
 }
 
 def get_sheet_client():
-    scopes = ["https://spreadsheets.google.com/feeds", "https://www.googleapis.com/auth/drive"]
-    creds = ServiceAccountCredentials.from_json_keyfile_dict(CREDENTIALS_DICT, scopes)
+    scopes = ["https://www.googleapis.com/auth/spreadsheets", "https://www.googleapis.com/auth/drive"]
+    creds = Credentials.from_service_account_info(CREDENTIALS_DICT, scopes=scopes)
     return gspread.authorize(creds)
 
 def get_worksheet_df(sheet_name, fallback_headers):
@@ -44,19 +45,19 @@ def get_worksheet_df(sheet_name, fallback_headers):
         return pd.DataFrame(columns=fallback_headers), worksheet
     return pd.DataFrame(data), worksheet
 
-# Table Structures
+# Exact Structural Configurations Matching Google Sheets Layers
 PARTIES_HEADERS = ["id", "name", "guardian_name", "dob", "mobile", "whatsapp", "address", "pincode", "pan_masked", "occupation", "qualification", "kyc_status", "created_at"]
 LOANS_HEADERS = ["id", "party_id", "principal", "interest_rate", "duration_months", "emi", "processing_fee", "admin_fee", "documentation_fee", "net_disbursed", "interest_amount", "total_payable", "gold_description", "items_count", "gross_weight", "net_weight", "purity_karat", "appraised_value", "vault_id", "gold_image_base64", "status", "disbursed_date"]
 LEDGER_HEADERS = ["id", "loan_id", "transaction_type", "amount", "transaction_date"]
 
-# Fetch Sheets
+# Pull Clean Cloud Streams
 parties_df, parties_ws = get_worksheet_df("parties", PARTIES_HEADERS)
 loans_df, loans_ws = get_worksheet_df("loans", LOANS_HEADERS)
 ledger_df, ledger_ws = get_worksheet_df("ledger", LEDGER_HEADERS)
 
-# ==========================================
+# ==============================================================================
 # 2. STREAMLIT UI & STYLE CONFIGURATION
-# ==========================================
+# ==============================================================================
 st.set_page_config(page_title="AuraLoan | Gold Loan System", layout="wide", page_icon="💎")
 
 st.markdown("""
@@ -80,15 +81,15 @@ st.markdown("""
     </style>
 """, unsafe_allow_html=True)
 
-# Metrics
+# Metrics Aggregators
 count_parties = len(parties_df)
 count_loans = len(loans_df)
 count_gold = len(loans_df[loans_df['status'] == 'Active']) if not loans_df.empty else 0
 count_tx = len(ledger_df)
 
-# ==========================================
-# 3. HTML DOCUMENT GENERATORS
-# ==========================================
+# ==============================================================================
+# 3. HTML DOCUMENT ENGINE GENERATORS
+# ==============================================================================
 def generate_agreement_html(loan_row, party_row):
     image_html_tag = ""
     if loan_row.get('gold_image_base64'):
@@ -153,9 +154,9 @@ def generate_fee_receipt_html(loan_row, party_row):
     </div>
     """
 
-# ==========================================
-# 4. SIDEBAR NAVIGATION
-# ==========================================
+# ==============================================================================
+# 4. SIDEBAR SELECTION SYSTEM
+# ==============================================================================
 st.sidebar.markdown("### 📋 Navigation")
 main_menu = ["🏠 Dashboard", "👤 Party Master", "✏️ Edit/Delete Party Profile", "💰 Gold Loan Management", "💍 Gold Pledge Management", "📄 Loan Agreement (Malayalam)", "📅 EMI Schedule", "💾 Backup, Restore & Upload"]
 choice = st.sidebar.selectbox("Select Module", main_menu)
@@ -172,12 +173,12 @@ st.sidebar.write(f"💰 Loans: **{count_loans}**")
 st.sidebar.write(f"💍 Active Gold: **{count_gold}**")
 st.sidebar.write(f"📝 Transactions: **{count_tx}**")
 
-st.title("🏆 AuraLoan - Secure Cloud Framework")
+st.title("🏆 AuraLoan - Premium Cloud Architecture")
 st.markdown("---")
 
-# ==========================================
+# ==============================================================================
 # MODULE: DASHBOARD
-# ==========================================
+# ==============================================================================
 if choice == "🏠 Dashboard":
     st.header("📊 Executive Portfolio Dashboard")
     
@@ -202,9 +203,9 @@ if choice == "🏠 Dashboard":
     else:
         st.info("No logs present yet.")
 
-# ==========================================
-# MODULE: PARTY MASTER
-# ==========================================
+# ==============================================================================
+# MODULE: PARTY MASTER REGISTER
+# ==============================================================================
 elif choice == "👤 Party Master":
     st.header("👤 Customer Registration (Party Master)")
     with st.form("party_master_form"):
@@ -233,9 +234,9 @@ elif choice == "👤 Party Master":
             else:
                 st.error("Name and Mobile are required.")
 
-# ==========================================
-# MODULE: EDIT & DELETE PARTY DETAILS
-# ==========================================
+# ==============================================================================
+# MODULE: PROFILE MODIFICATION & DELETION BOUNDARY
+# ==============================================================================
 elif choice == "✏️ Edit/Delete Party Profile":
     st.header("✏️ Profile Management Core")
     if parties_df.empty:
@@ -284,9 +285,9 @@ elif choice == "✏️ Edit/Delete Party Profile":
                         st.success("Profile deleted successfully from cloud dataset.")
                         st.rerun()
 
-# ==========================================
-# MODULE: GOLD LOAN MANAGEMENT
-# ==========================================
+# ==============================================================================
+# MODULE: GOLD LOAN FORMULATION & MANAGEMENT LAYER
+# ==============================================================================
 elif choice == "💰 Gold Loan Management":
     if sub_choice == "💸 Loan Disbursement":
         st.header("💸 Gold Loan Formulation")
@@ -371,6 +372,7 @@ elif choice == "💰 Gold Loan Management":
                                 next_tx_id = int(ledger_df['id'].max() + 1) if not ledger_df.empty else 1
                                 ledger_ws.append_row([next_tx_id, selected_loan, "Repayment", repay_amt, str(repay_date)])
                                 
+                                # Auto status closing fix
                                 if repay_amt >= live_outstanding_balance:
                                     sheet_row_num = int(target_loan_idx) + 2
                                     loans_ws.update_cell(sheet_row_num, 21, "Closed")
@@ -382,9 +384,9 @@ elif choice == "💰 Gold Loan Management":
                     st.metric("Current Outstanding Balance", f"₹{live_outstanding_balance:,.2f}")
                     st.dataframe(ledger_df[ledger_df['loan_id'] == selected_loan], use_container_width=True)
 
-# ==========================================
-# MODULE: GOLD PLEDGE MANAGEMENT
-# ==========================================
+# ==============================================================================
+# MODULE: INVENTORY VALUATION MATRIX
+# ==============================================================================
 elif choice == "💍 Gold Pledge Management":
     st.header("💍 Gold Pledge Inventory Vault Details")
     active_items = loans_df[loans_df['status'] == 'Active'] if not loans_df.empty else pd.DataFrame()
@@ -399,9 +401,9 @@ elif choice == "💍 Gold Pledge Management":
             st.write(f"🔢 **എണ്ണം:** {row['items_count']} Nos | ⚖️ **തൂക്കം:** {row['net_weight']} ഗ്രാം | 🔒 **വോൾട്ട് സൂചിക:** `{row['vault_id']}`")
             st.markdown("---")
 
-# ==========================================
-# MODULE: LOAN AGREEMENT MALAYALAM
-# ==========================================
+# ==============================================================================
+# MODULE: CONTRACT DOCUMENTATION PROVISION
+# ==============================================================================
 elif choice == "📄 Loan Agreement (Malayalam)":
     st.header("📄 Malayalam Legal Agreement Console")
     if loans_df.empty:
@@ -416,9 +418,9 @@ elif choice == "📄 Loan Agreement (Malayalam)":
         agreement_html = generate_agreement_html(loan_row, party_row)
         st.download_button(label="📥 ഡൗൺലോഡ് കരാർ പത്രം", data=agreement_html, file_name=f"Agreement_{target_contract}.html", mime="text/html")
 
-# ==========================================
-# MODULE: EMI SCHEDULE MATRIX
-# ==========================================
+# ==============================================================================
+# MODULE: PROJECTION EMI CALCULATOR MAPPING
+# ==============================================================================
 elif choice == "📅 EMI Schedule":
     st.header("📅 Monthly Recovery Projection Mapping (EMI Schedule)")
     if loans_df.empty:
@@ -444,14 +446,62 @@ elif choice == "📅 EMI Schedule":
                 })
             st.table(pd.DataFrame(schedule_list))
 
-# ==========================================
-# MODULE: BACKUP & EXPORTS
-# ==========================================
+# ==============================================================================
+# MODULE: MIGRATION DATA PARSER & MAPPING FOR CLOUD ARCHITECTURE
+# ==============================================================================
 elif choice == "💾 Backup, Restore & Upload":
-    st.header("💾 Storage Engine Exports")
+    st.header("💾 Cloud Storage Migration & Exports")
     
-    st.download_button("Download Customers Dataset (CSV)", data=parties_df.to_csv(index=False).encode('utf-8'), file_name="parties_export.csv", mime="text/csv")
-    st.download_button("Download Loans Dataset (CSV)", data=loans_df.to_csv(index=False).encode('utf-8'), file_name="loans_export.csv", mime="text/csv")
-    st.info("💡 Storage backend is dynamically handled on Google Sheets cloud architecture.")
+    # Section A: Dynamic CSV Migration Module
+    st.subheader("📤 Upload Local CSV to Google Sheets")
+    target_upload_table = st.selectbox("Select Target Sheet Destination", ["parties", "loans", "ledger"])
+    uploaded_migration_file = st.file_uploader(f"Choose legacy `{target_upload_table}` CSV file...", type=["csv"])
+    
+    if uploaded_migration_file is not None:
+        try:
+            input_df = pd.read_csv(uploaded_migration_file)
+            input_df = input_df.fillna("")  # Avoid blank field API structural faults
+            
+            if target_upload_table == "parties":
+                fallback_headers = PARTIES_HEADERS
+                target_ws = parties_ws
+            elif target_upload_table == "loans":
+                fallback_headers = LOANS_HEADERS
+                target_ws = loans_ws
+            else:
+                fallback_headers = LEDGER_HEADERS
+                target_ws = ledger_ws
+                
+            matched_cols = [col for col in fallback_headers if col in input_df.columns]
+            final_upload_df = input_df[matched_cols]
+            
+            if st.button(f"Commit Data Feed to Google Sheets (`{target_upload_table}`)"):
+                with st.spinner("Writing batch datasets directly to Cloud Spreadsheet..."):
+                    rows_to_append = final_upload_df.values.tolist()
+                    if rows_to_append:
+                        target_ws.append_rows(rows_to_append)
+                        st.success(f"Successfully migrated {len(rows_to_append)} rows straight into the cloud `{target_upload_table}` sheet!")
+                        st.rerun()
+                    else:
+                        st.warning("The uploaded file does not contain entries matching schema alignment criteria.")
+                        
+        except Exception as err:
+            st.error(f"Failed parsing file formatting layout context. Internal API error: {err}")
+            
+    st.markdown("---")
+    
+    # Section B: Dynamic Live Export Downloads
+    st.subheader("📥 Download Live Data Streams")
+    col1, col2 = st.columns(2)
+    with col1:
+        st.markdown("#### Party Registries Matrix")
+        st.download_button("Download Customers CSV", data=parties_df.to_csv(index=False).encode('utf-8'), file_name="parties_export.csv", mime="text/csv")
+        
+    with col2:
+        st.markdown("#### Active Portfolio Matrix")
+        st.download_button("Download Loans CSV", data=loans_df.to_csv(index=False).encode('utf-8'), file_name="loans_export.csv", mime="text/csv")
+        
+    st.markdown("---")
+    st.info("💡 Your system's storage layer is now fully operational over Google Sheets architecture. DB files are no longer required.")
 
 

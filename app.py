@@ -1,4 +1,3 @@
-
 import streamlit as st
 import pandas as pd
 import gspread
@@ -7,7 +6,7 @@ from datetime import datetime
 import base64
 
 # ==========================================
-# 1. GOOGLE SHEETS STORAGE CONFIGURATION
+# 1. SECURE GOOGLE SHEETS STORAGE CONFIGURATION
 # ==========================================
 SPREADSHEET_ID = "1F5u2D9AgvPOB6vS6BLABF4wwq0yj5XPQYddyKIcFSSU"
 
@@ -16,7 +15,8 @@ CREDENTIALS_DICT = {
     "type": "service_account",
     "project_id": "goldloan-502122",
     "private_key_id": "9e9fa7bf45e3e09f45174081c9f31b4250c0f8d6",
-    "private_key": "-----BEGIN PRIVATE KEY-----\nMIIEvQIBADANBgkqhkiG9w0BAQEFAASCBKcwggSjAgEAAoIBAQDDlKK0EiZYTpLq\nNJ3+EIlB63dADeFLvE2CXRc/zF/d6QE9BR1JdVbt79uT7rW6qHZuBF/z/v6/IDBL\nYjJybwvjM2vTC6Hr2ILBeV9hiSoJsC0zGUUaud/sTVoCgeUcs34I/M7b52aKZjmv\nw0OWGwgMmtGlE7xykZJPOjIfYQ03Qh8Qd/m7UPxplFgJ+8pQztbM6yWpw+Eqv8YF\nq/ixj26o0Z6p3bHoOgALJCb5LOlZF7i8LgE5jRTVAhVJDLplbJ8IpHgkVPUoJvpr\nS01KpgKQfoPnplr37CfGwKop/oD231jp99lsEOLSB8vwBnazTEbmnAeCxZC8ot89\ngMkb2W2ZAgMBAAECggEAUGAkIWaYFZBs9g0bpM686bdP8aYCobJIFDwXkuN1vmfE\nV4Rjjc3IJM5+6aOfUY9r5DiuCkMQBBHBZyl62+Zg90UpmbjdGWSID+TGWvoYqZSa\nbraC3MHokV8Uj5U8R/hH4n+qr1rAnD34lQ/lFaoUO8HgSDv9JQRIIYEkGhszaDJv\nUOcqNmgwplZLh43BFX3ZXwmnI+j4KKGlYo5LZxlRoMBfDXUzbmzs0hHWdNAZ5yyV\n6GKUj6wP094OM10Tg/PE4/4zg+BnPRncCoqb+DmTmfojZAnZDoEWrMumt0FnE6Id\njskrZuj0f5pWZh6Lc9oyuSDZQIL1amKJWdzKu8cgxQKBgQDg2IvvCFuLyeUvRzDr\nVfYp3dk+N/G2PshcspEpc+E+mPIDnb3Z42FI5MPdalGZkYX67yS3ZZXG8py/Cd+u\nSIXMRe3jYAcuanQHqu8ahCscNkEn3XGqAMTrPZK6eulepcRoWZYyf9rB9mWgyepb\nbzZmq38JUZGgMQP8gWkdOLTDHwKBgQDergcGjKZFjSF/OG8aX+yF/iAwQfFhtAfu\nWwtkiIamNZbuiDEO/YPGmu42RovciZni8AAzue9rdv1cPZEldm/K9Y4Q0RRTnF+R\nhS9WzRS2ZOgnEQJZ/Z/1aRjDfHn4XHFlX2n3mdi8t3y80bb+47n02CQbznszJ1VH\n7AGTdC6wRwKBgQCiaIgbLmRBwqGC1t9k/YCDmTVUFcDILO0419q2oHcwafVV21jI\ny873ghZgFm2+iTjHmnlg50WaoJ/L9evVzZinhlNgi3pkcoxBBZ0UACfLhvzlOLTj\nYQ7cBGu5uxJaRU5rOVqeO2/d7oZV78MSLHCVFIb8SijwFreUaj1s2ArpbQKBgHg1\ntD854Gy9gm6+VWQEkpfHFzNV9evLl1h6N80+0omZdnAwf2NbQi8N5jjQnqIgej2D\nWGiUIIaABsgryFZT+Ie1RcsYQ4Pbb9AL+QE/1sWb9aNZUE6qVxbRdHfbk7CanvCd\nsIPkvpcp6qG4CLTS1MkzgVKthd6YhjY8VqF2X9nzAoGADHYa8Pn0ND8N9w65o3Ji\nEhuevmqIdXkiuRXeCjPz7a1WzVeRn1r+Hy77ZjBXRusNFH6WCA6vN6i7Kf1PbM1S\ntTzrFx3BjY5K160tkpffDTHf71g1O88j0Uc9eZsZLwRpsgpey4ORjVhDFpu4Pnld\n7Q5HshnMj5ZUzSY5dqPIMjE=\n-----END PRIVATE KEY-----\n",
+    # Automatically convert the text string escaping \n into proper system breaks
+    "private_key": "-----BEGIN PRIVATE KEY-----\nMIIEvQIBADANBgkqhkiG9w0BAQEFAASCBKcwggSjAgEAAoIBAQDDlKK0EiZYTpLq\nNJ3+EIlB63dADeFLvE2CXRc/zF/d6QE9BR1JdVbt79uT7rW6qHZuBF/z/v6/IDBL\nYjJybwvjM2vTC6Hr2ILBeV9hiSoJsC0zGUUaud/sTVoCgeUcs34I/M7b52aKZjmv\nw0OWGwgMmtGlE7xykZJPOjIfYQ03Qh8Qd/m7UPxplFgJ+8pQztbM6yWpw+Eqv8YF\nq/ixj26o0Z6p3bHoOgALJCb5LOlZF7i8LgE5jRTVAhVJDLplbJ8IpHgkVPUoJvpr\nS01KpgKQfoPnplr37CfGwKop/oD231jp99lsEOLSB8vwBnazTEbmnAeCxZC8ot89\ngMkb2W2ZAgMBAAECggEAUGAkIWaYFZBs9g0bpM686bdP8aYCobJIFDwXkuN1vmfE\nV4Rjjc3IJM5+6aOfUY9r5DiuCkMQBBHBZyl62+Zg90UpmbjdGWSID+TGWvoYqZSa\nbraC3MHokV8Uj5U8R/hH4n+qr1rAnD34lQ/lFaoUO8HgSDv9JQRIIYEkGhszaDJv\nUOcqNmgwplZLh43BFX3ZXwmnI+j4KKGlYo5LZxlRoMBfDXUzbmzs0hHWdNAZ5yyV\n6GKUj6wP094OM10Tg/PE4/4zg+BnPRncCoqb+DmTmfojZAnZDoEWrMumt0FnE6Id\jskrZuj0f5pWZh6Lc9oyuSDZQIL1amKJWdzKu8cgxQKBgQDg2IvvCFuLyeUvRzDr\nVfYp3dk+N/G2PshcspEpc+E+mPIDnb3Z42FI5MPdalGZkYX67yS3ZZXG8py/Cd+u\nSIXMRe3jYAcuanQHqu8ahCscNkEn3XGqAMTrPZK6eulepcRoWZYyf9rB9mWgyepb\nbzZmq38JUZGgMQP8gWkdOLTDHwKBgQDergcGjKZFjSF/OG8aX+yF/iAwQfFhtAfu\nWwtkiIamNZbuiDEO/YPGmu42RovciZni8AAzue9rdv1cPZEldm/K9Y4Q0RRTnF+R\nhS9WzRS2ZOgnEQJZ/Z/1aRjDfHn4XHFlX2n3mdi8t3y80bb+47n02CQbznszJ1VH\n7AGTdC6wRwKBgQCiaIgbLmRBwqGC1t9k/YCDmTVUFcDILO0419q2oHcwafVV21jI\ny873ghZgFm2+iTjHmnlg50WaoJ/L9evVzZinhlNgi3pkcoxBBZ0UACfLhvzlOLTj\nYQ7cBGu5uxJaRU5rOVqeO2/d7oZV78MSLHCVFIb8SijwFreUaj1s2ArpbQKBgHg1\ntD854Gy9gm6+VWQEkpfHFzNV9evLl1h6N80+0omZdnAwf2NbQi8N5jjQnqIgej2D\nWGiUIIaABsgryFZT+Ie1RcsYQ4Pbb9AL+QE/1sWb9aNZUE6qVxbRdHfbk7CanvCd\nsIPkvpcp6qG4CLTS1MkzgVKthd6YhjY8VqF2X9nzAoGADHYa8Pn0ND8N9w65o3Ji\nEhuevmqIdXkiuRXeCjPz7a1WzVeRn1r+Hy77ZjBXRusNFH6WCA6vN6i7Kf1PbM1S\ntTzrFx3BjY5K160tkpffDTHf71g1O88j0Uc9eZsZLwRpsgpey4ORjVhDFpu4Pnld\n7Q5HshnMj5ZUzSY5dqPIMjE=\n-----END PRIVATE KEY-----\n".replace('\\n', '\n'),
     "client_email": "goldloan@goldloan-502122.iam.gserviceaccount.com",
     "client_id": "118054610595093839439",
     "auth_uri": "https://accounts.google.com/o/oauth2/auth",
@@ -44,12 +44,12 @@ def get_worksheet_df(sheet_name, fallback_headers):
         return pd.DataFrame(columns=fallback_headers), worksheet
     return pd.DataFrame(data), worksheet
 
-# Standard Table Definitions
+# Table Structures
 PARTIES_HEADERS = ["id", "name", "guardian_name", "dob", "mobile", "whatsapp", "address", "pincode", "pan_masked", "occupation", "qualification", "kyc_status", "created_at"]
 LOANS_HEADERS = ["id", "party_id", "principal", "interest_rate", "duration_months", "emi", "processing_fee", "admin_fee", "documentation_fee", "net_disbursed", "interest_amount", "total_payable", "gold_description", "items_count", "gross_weight", "net_weight", "purity_karat", "appraised_value", "vault_id", "gold_image_base64", "status", "disbursed_date"]
 LEDGER_HEADERS = ["id", "loan_id", "transaction_type", "amount", "transaction_date"]
 
-# Initializing Sheets & Dataframe Fetching
+# Fetch Sheets
 parties_df, parties_ws = get_worksheet_df("parties", PARTIES_HEADERS)
 loans_df, loans_ws = get_worksheet_df("loans", LOANS_HEADERS)
 ledger_df, ledger_ws = get_worksheet_df("ledger", LEDGER_HEADERS)
@@ -80,14 +80,14 @@ st.markdown("""
     </style>
 """, unsafe_allow_html=True)
 
-# Counter calculations
+# Metrics
 count_parties = len(parties_df)
 count_loans = len(loans_df)
 count_gold = len(loans_df[loans_df['status'] == 'Active']) if not loans_df.empty else 0
 count_tx = len(ledger_df)
 
 # ==========================================
-# 3. HELPERS FOR HTML RENDERERS
+# 3. HTML DOCUMENT GENERATORS
 # ==========================================
 def generate_agreement_html(loan_row, party_row):
     image_html_tag = ""
@@ -154,7 +154,7 @@ def generate_fee_receipt_html(loan_row, party_row):
     """
 
 # ==========================================
-# 4. SIDEBAR NAVIGATION MANAGEMENT
+# 4. SIDEBAR NAVIGATION
 # ==========================================
 st.sidebar.markdown("### 📋 Navigation")
 main_menu = ["🏠 Dashboard", "👤 Party Master", "✏️ Edit/Delete Party Profile", "💰 Gold Loan Management", "💍 Gold Pledge Management", "📄 Loan Agreement (Malayalam)", "📅 EMI Schedule", "💾 Backup, Restore & Upload"]
@@ -172,7 +172,7 @@ st.sidebar.write(f"💰 Loans: **{count_loans}**")
 st.sidebar.write(f"💍 Active Gold: **{count_gold}**")
 st.sidebar.write(f"📝 Transactions: **{count_tx}**")
 
-st.title("🏆 AuraLoan - Premium Google Sheets System")
+st.title("🏆 AuraLoan - Secure Cloud Framework")
 st.markdown("---")
 
 # ==========================================
@@ -258,7 +258,6 @@ elif choice == "✏️ Edit/Delete Party Profile":
                 edit_kyc = st.selectbox("KYC Status", ["Pending", "Verified", "Suspended"], index=["Pending", "Verified", "Suspended"].index(selected_row['kyc_status']))
                 
                 if st.form_submit_button("Save Updates"):
-                    # Row index in Google sheets is dataframe index + 2 (1-indexed + header row)
                     sheet_row_num = int(selected_idx) + 2
                     parties_ws.update_cell(sheet_row_num, 2, edit_name)
                     parties_ws.update_cell(sheet_row_num, 3, edit_guardian)
@@ -273,7 +272,6 @@ elif choice == "✏️ Edit/Delete Party Profile":
             confirm_text = st.text_input("Type 'DELETE' to confirm:")
             if st.button("Confirm Account Destruction"):
                 if confirm_text == "DELETE":
-                    # FIX 1: Filter check to safely allow deletion only if there are NO Active loans
                     active_loans_count = 0
                     if not loans_df.empty:
                         active_loans_count = len(loans_df[(loans_df['party_id'] == party_to_edit) & (loans_df['status'] == 'Active')])
@@ -287,7 +285,7 @@ elif choice == "✏️ Edit/Delete Party Profile":
                         st.rerun()
 
 # ==========================================
-# PARENT MODULE: GOLD LOAN MANAGEMENT
+# MODULE: GOLD LOAN MANAGEMENT
 # ==========================================
 elif choice == "💰 Gold Loan Management":
     if sub_choice == "💸 Loan Disbursement":
@@ -355,7 +353,6 @@ elif choice == "💰 Gold Loan Management":
                 
                 total_liability = float(target_loan_row['total_payable'])
                 
-                # Fetch relevant credit items from ledger
                 repayments_pool = ledger_df[(ledger_df['loan_id'] == selected_loan) & (ledger_df['transaction_type'].isin(['Repayment', 'Interest Settlement']))]
                 total_repaid = pd.to_numeric(repayments_pool['amount']).sum() if not repayments_pool.empty else 0.0
                 
@@ -374,10 +371,8 @@ elif choice == "💰 Gold Loan Management":
                                 next_tx_id = int(ledger_df['id'].max() + 1) if not ledger_df.empty else 1
                                 ledger_ws.append_row([next_tx_id, selected_loan, "Repayment", repay_amt, str(repay_date)])
                                 
-                                # FIX 2: Check if this installment covers the remaining balance completely. If so, update sheet row to 'Closed'
                                 if repay_amt >= live_outstanding_balance:
                                     sheet_row_num = int(target_loan_idx) + 2
-                                    # status column is index 21 (1-indexed mapping for 'status')
                                     loans_ws.update_cell(sheet_row_num, 21, "Closed")
                                 
                                 st.success("Repayment posted successfully to Google Sheets!")

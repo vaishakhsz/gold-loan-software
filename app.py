@@ -1,8 +1,3 @@
-# Fix for segmentation fault - MUST be at the very top
-import os
-os.environ['STREAMLIT_SERVER_FILE_WATCHER_TYPE'] = 'none'
-os.environ['STREAMLIT_SERVER_RUN_ON_SAVE'] = 'false'
-
 import streamlit as st
 import pandas as pd
 from datetime import datetime
@@ -11,564 +6,321 @@ import gspread
 from google.oauth2.service_account import Credentials
 
 # ==========================================
-# 1. GOOGLE SHEETS CONNECTION INITIALIZATION
+# GOOGLE SHEETS SETUP
 # ==========================================
-def get_credentials():
-    """Get credentials from secrets"""
-    creds_dict = {
-        "type": "service_account",
-        "project_id": st.secrets["connections"]["gsheets"]["project_id"],
-        "private_key_id": st.secrets["connections"]["gsheets"]["private_key_id"],
-        "private_key": st.secrets["connections"]["gsheets"]["private_key"],
-        "client_email": st.secrets["connections"]["gsheets"]["client_email"],
-        "client_id": st.secrets["connections"]["gsheets"]["client_id"],
-        "auth_uri": st.secrets["connections"]["gsheets"]["auth_uri"],
-        "token_uri": st.secrets["connections"]["gsheets"]["token_uri"],
-        "auth_provider_x509_cert_url": st.secrets["connections"]["gsheets"]["auth_provider_x509_cert_url"],
-        "client_x509_cert_url": st.secrets["connections"]["gsheets"]["client_x509_cert_url"]
-    }
-    
-    scopes = [
-        'https://www.googleapis.com/auth/spreadsheets'
-    ]
-    
-    credentials = Credentials.from_service_account_info(creds_dict, scopes=scopes)
-    return credentials
-
-def get_gspread_client():
-    """Create gspread client"""
-    credentials = get_credentials()
-    gc = gspread.authorize(credentials)
-    return gc
-
-def get_worksheet(sheet_name):
-    """Get or create worksheet"""
-    gc = get_gspread_client()
-    spreadsheet_id = st.secrets["connections"]["gsheets"]["spreadsheet"]
-    
-    try:
-        sh = gc.open_by_key(spreadsheet_id)
-    except Exception as e:
-        st.error(f"Cannot access spreadsheet. Make sure it's shared with: {st.secrets['connections']['gsheets']['client_email']}")
-        st.stop()
-    
-    try:
-        worksheet = sh.worksheet(sheet_name)
-    except gspread.exceptions.WorksheetNotFound:
-        worksheet = sh.add_worksheet(title=sheet_name, rows="1000", cols="30")
-        if sheet_name == "Parties":
-            headers = ['id', 'name', 'guardian_name', 'dob', 'mobile', 'whatsapp',
-                      'address', 'pincode', 'pan_masked', 'occupation', 'qualification', 
-                      'kyc_status', 'created_at']
-        elif sheet_name == "Loans":
-            headers = ['id', 'party_id', 'party_name', 'principal', 'interest_rate', 
-                      'duration_months', 'emi', 'processing_fee', 'admin_fee', 
-                      'documentation_fee', 'net_disbursed', 'interest_amount', 
-                      'total_payable', 'gold_description', 'items_count', 'gross_weight',
-                      'net_weight', 'purity_karat', 'appraised_value', 'vault_id',
-                      'gold_image_base64', 'status', 'disbursed_date', 'created_at']
-        elif sheet_name == "Ledger":
-            headers = ['id', 'loan_id', 'transaction_type', 'amount', 
-                      'transaction_date', 'created_at']
-        else:
-            headers = []
-        
-        if headers:
-            worksheet.append_row(headers)
-    
-    return worksheet
-
-def get_next_id(worksheet):
-    """Get next available ID"""
-    try:
-        data = worksheet.get_all_values()
-        if len(data) <= 1:
-            return 1
-        
-        ids = []
-        for row in data[1:]:
-            if row and row[0].isdigit():
-                ids.append(int(row[0]))
-        
-        return max(ids) + 1 if ids else 1
-    except:
-        return 1
-
-def init_sheets():
-    """Initialize all required sheets"""
-    sheets = ["Parties", "Loans", "Ledger"]
-    for sheet in sheets:
-        get_worksheet(sheet)
-    return True
-
-# Initialize sheets with caching to prevent reloads
 @st.cache_resource
-def initialize_connection():
-    """Initialize Google Sheets connection once"""
-    try:
-        init_sheets()
-        return True
-    except Exception as e:
-        st.error(f"❌ Error connecting to Google Sheets: {str(e)}")
-        return False
+def setup_gsheet():
+    """Setup Google Sheets connection"""
+    credentials = Credentials.from_service_account_info(
+        st.secrets["connections"]["gsheets"],
+        scopes=["https://www.googleapis.com/auth/spreadsheets"]
+    )
+    client = gspread.authorize(credentials)
+    sheet = client.open_by_key(st.secrets["connections"]["gsheets"]["spreadsheet"])
+    return sheet
 
 # Initialize
-if not initialize_connection():
+try:
+    sheet = setup_gsheet()
+    parties_ws = sheet.worksheet("Parties")
+    loans_ws = sheet.worksheet("Loans")
+    ledger_ws = sheet.worksheet("Ledger")
+except Exception as e:
+    st.error(f"Connection error: {e}")
     st.stop()
 
 # ==========================================
-# 2. DATABASE OPERATIONS
+# HELPER FUNCTIONS
 # ==========================================
-@st.cache_data(ttl=60)
-def get_all_parties_cached():
-    """Get all parties as DataFrame with caching"""
-    ws = get_worksheet("Parties")
-    try:
-        data = ws.get_all_values()
-        if len(data) > 1:
-            df = pd.DataFrame(data[1:], columns=data[0])
-            return df
-        return pd.DataFrame(columns=data[0] if data else [])
-    except:
-        return pd.DataFrame()
+def get_next_id(worksheet):
+    """Get next ID"""
+    data = worksheet.get_all_values()
+    if len(data) <= 1:
+        return 1
+    ids = [int(row[0]) for row in data[1:] if row[0].isdigit()]
+    return max(ids) + 1 if ids else 1
 
-@st.cache_data(ttl=60)
-def get_all_loans_cached():
-    """Get all loans as DataFrame with caching"""
-    ws = get_worksheet("Loans")
-    try:
-        data = ws.get_all_values()
-        if len(data) > 1:
-            df = pd.DataFrame(data[1:], columns=data[0])
-            return df
-        return pd.DataFrame(columns=data[0] if data else [])
-    except:
-        return pd.DataFrame()
-
-@st.cache_data(ttl=60)
-def get_all_ledger_cached():
-    """Get all ledger entries as DataFrame with caching"""
-    ws = get_worksheet("Ledger")
-    try:
-        data = ws.get_all_values()
-        if len(data) > 1:
-            df = pd.DataFrame(data[1:], columns=data[0])
-            return df
-        return pd.DataFrame(columns=data[0] if data else [])
-    except:
-        return pd.DataFrame()
-
-def add_party(party_data):
-    """Add a new party record"""
-    ws = get_worksheet("Parties")
-    new_id = get_next_id(ws)
-    
-    row = [
-        new_id,
-        party_data.get('name', ''),
-        party_data.get('guardian_name', ''),
-        str(party_data.get('dob', '')),
-        party_data.get('mobile', ''),
-        party_data.get('whatsapp', ''),
-        party_data.get('address', ''),
-        party_data.get('pincode', ''),
-        party_data.get('pan_masked', ''),
-        party_data.get('occupation', ''),
-        party_data.get('qualification', ''),
-        party_data.get('kyc_status', 'Pending'),
-        str(datetime.now().date())
-    ]
-    
-    ws.append_row(row)
-    # Clear cache after adding
-    get_all_parties_cached.clear()
-    return new_id
-
-def update_party(party_id, updated_data):
-    """Update party record"""
-    ws = get_worksheet("Parties")
-    try:
-        cell = ws.find(str(party_id), in_column=1)
-        if cell:
-            row_num = cell.row
-            
-            column_map = {
-                'name': 2, 'guardian_name': 3, 'dob': 4, 'mobile': 5,
-                'whatsapp': 6, 'address': 7, 'pincode': 8, 'pan_masked': 9,
-                'occupation': 10, 'qualification': 11, 'kyc_status': 12
-            }
-            
-            for key, value in updated_data.items():
-                if key in column_map:
-                    ws.update_cell(row_num, column_map[key], str(value))
-            
-            # Clear cache after updating
-            get_all_parties_cached.clear()
-            return True
-    except:
-        pass
-    return False
-
-def delete_party(party_id):
-    """Delete party record"""
-    ws = get_worksheet("Parties")
-    try:
-        cell = ws.find(str(party_id), in_column=1)
-        if cell:
-            ws.delete_rows(cell.row)
-            # Clear cache after deleting
-            get_all_parties_cached.clear()
-            return True
-    except:
-        pass
-    return False
-
-def add_loan(loan_data):
-    """Add new loan record"""
-    ws = get_worksheet("Loans")
-    new_id = get_next_id(ws)
-    
-    row = [
-        new_id,
-        loan_data.get('party_id', ''),
-        loan_data.get('party_name', ''),
-        loan_data.get('principal', 0),
-        loan_data.get('interest_rate', 0),
-        loan_data.get('duration_months', 0),
-        loan_data.get('emi', 0),
-        loan_data.get('processing_fee', 0),
-        loan_data.get('admin_fee', 0),
-        loan_data.get('documentation_fee', 0),
-        loan_data.get('net_disbursed', 0),
-        loan_data.get('interest_amount', 0),
-        loan_data.get('total_payable', 0),
-        loan_data.get('gold_description', ''),
-        loan_data.get('items_count', 0),
-        loan_data.get('gross_weight', 0),
-        loan_data.get('net_weight', 0),
-        loan_data.get('purity_karat', 0),
-        loan_data.get('appraised_value', 0),
-        loan_data.get('vault_id', ''),
-        loan_data.get('gold_image_base64', ''),
-        'Active',
-        str(datetime.now().date()),
-        str(datetime.now().date())
-    ]
-    
-    ws.append_row(row)
-    # Clear caches
-    get_all_loans_cached.clear()
-    return new_id
-
-def update_loan_status(loan_id, status):
-    """Update loan status"""
-    ws = get_worksheet("Loans")
-    try:
-        cell = ws.find(str(loan_id), in_column=1)
-        if cell:
-            ws.update_cell(cell.row, 22, status)
-            # Clear cache
-            get_all_loans_cached.clear()
-            return True
-    except:
-        pass
-    return False
-
-def add_ledger_entry(entry_data):
-    """Add ledger transaction"""
-    ws = get_worksheet("Ledger")
-    new_id = get_next_id(ws)
-    
-    row = [
-        new_id,
-        entry_data.get('loan_id', ''),
-        entry_data.get('transaction_type', ''),
-        entry_data.get('amount', 0),
-        str(entry_data.get('transaction_date', datetime.now().date())),
-        str(datetime.now().date())
-    ]
-    
-    ws.append_row(row)
-    # Clear cache
-    get_all_ledger_cached.clear()
-    return new_id
-
-def get_party_by_id(party_id):
-    """Get specific party by ID"""
-    df = get_all_parties_cached()
-    if not df.empty:
-        result = df[df['id'].astype(str) == str(party_id)]
-        if not result.empty:
-            return result.iloc[0].to_dict()
-    return None
-
-def get_loan_by_id(loan_id):
-    """Get specific loan by ID"""
-    df = get_all_loans_cached()
-    if not df.empty:
-        result = df[df['id'].astype(str) == str(loan_id)]
-        if not result.empty:
-            return result.iloc[0].to_dict()
-    return None
-
-def get_ledger_for_loan(loan_id):
-    """Get ledger for specific loan"""
-    df = get_all_ledger_cached()
-    if not df.empty:
-        result = df[df['loan_id'].astype(str) == str(loan_id)]
-        return result
+def df_from_worksheet(worksheet):
+    """Convert worksheet to DataFrame"""
+    data = worksheet.get_all_values()
+    if len(data) > 1:
+        return pd.DataFrame(data[1:], columns=data[0])
     return pd.DataFrame()
 
-# ==========================================
-# 3. STREAMLIT UI & STYLE CONFIGURATION
-# ==========================================
-st.set_page_config(page_title="AuraLoan | Gold Loan System", layout="wide", page_icon="💎")
+def add_party(name, guardian, dob, mobile, whatsapp, occupation, qualification, address, pincode, pan, kyc):
+    """Add new party"""
+    pid = get_next_id(parties_ws)
+    parties_ws.append_row([pid, name, guardian, str(dob), mobile, whatsapp, address, pincode, pan, occupation, qualification, kyc, str(datetime.now().date())])
+    return pid
 
-# Custom Styles
+def add_loan(party_id, party_name, principal, rate, duration, emi, proc_fee, admin_fee, doc_fee, interest_amt, total_pay, gold_desc, items, gross_wt, net_wt, purity, appraised, vault, photo, date):
+    """Add new loan"""
+    lid = get_next_id(loans_ws)
+    loans_ws.append_row([lid, party_id, party_name, principal, rate, duration, emi, proc_fee, admin_fee, doc_fee, principal, interest_amt, total_pay, gold_desc, items, gross_wt, net_wt, purity, appraised, vault, photo, 'Active', date, str(datetime.now().date())])
+    return lid
+
+def add_ledger(loan_id, tx_type, amount, date):
+    """Add ledger entry"""
+    eid = get_next_id(ledger_ws)
+    ledger_ws.append_row([eid, loan_id, tx_type, amount, date, str(datetime.now().date())])
+
+# ==========================================
+# LOAD DATA
+# ==========================================
+parties_df = df_from_worksheet(parties_ws)
+loans_df = df_from_worksheet(loans_ws)
+ledger_df = df_from_worksheet(ledger_ws)
+
+# ==========================================
+# UI SETUP
+# ==========================================
+st.set_page_config(page_title="AuraLoan", layout="wide", page_icon="💎")
+
 st.markdown("""
-    <style>
-    .stApp {
-        background-color: #FAF6EE !important;
-    }
-    .gold-header { 
-        color: #8B6508; 
-        font-weight: bold; 
-        text-align: center; 
-        margin-bottom: 20px; 
-    }
-    .stMetric { 
-        background-color: #FFFDF7 !important; 
-        padding: 15px; 
-        border-radius: 8px; 
-        border: 1px solid #E3C16F !important;
-        box-shadow: 0px 2px 4px rgba(227, 193, 111, 0.1);
-    }
-    div[data-testid="stForm"] {
-        background-color: #FFFDF9 !important;
-        border: 1px solid #E3C16F !important;
-        border-radius: 10px;
-    }
-    .agreement-box { 
-        border: 2px solid #b8860b; 
-        padding: 30px; 
-        background-color: #fcfcf4; 
-        border-radius: 10px; 
-        font-family: 'Inter', sans-serif; 
-        color: #333; 
-        line-height: 1.7; 
-    }
-    .agreement-table { 
-        width: 100%; 
-        border-collapse: collapse; 
-        margin-top: 15px; 
-        margin-bottom: 15px; 
-    }
-    .agreement-table th, .agreement-table td { 
-        border: 1px solid #b8860b; 
-        padding: 10px; 
-        text-align: left; 
-    }
-    .agreement-table th { 
-        background-color: #f5f0db; 
-        color: #b8860b; 
-    }
-    .printable-ledger { 
-        font-family: Arial, sans-serif; 
-        padding: 25px; 
-        border: 1px solid #ccc; 
-        background-color: white; 
-        color: black; 
-        border-radius: 5px; 
-    }
-    .printable-table { 
-        width: 100%; 
-        border-collapse: collapse; 
-        margin-top: 10px; 
-    }
-    .printable-table th, .printable-table td { 
-        border: 1px solid #000; 
-        padding: 8px; 
-        text-align: left; 
-    }
-    .printable-table th { 
-        background-color: #f2f2f2; 
-    }
-    .receipt-box { 
-        border: 2px dashed #333; 
-        padding: 20px; 
-        margin-top: 15px; 
-        background-color: #fff; 
-    }
-    </style>
+<style>
+.stApp { background-color: #FAF6EE; }
+.gold-header { color: #8B6508; font-weight: bold; text-align: center; margin-bottom: 20px; }
+.stMetric { background-color: #FFFDF7; padding: 15px; border-radius: 8px; border: 1px solid #E3C16F; }
+.agreement-box { border: 2px solid #b8860b; padding: 30px; background-color: #fcfcf4; border-radius: 10px; }
+.agreement-table { width: 100%; border-collapse: collapse; margin: 15px 0; }
+.agreement-table th, .agreement-table td { border: 1px solid #b8860b; padding: 10px; }
+.agreement-table th { background-color: #f5f0db; color: #b8860b; }
+</style>
 """, unsafe_allow_html=True)
 
-# Fetch Live System Counters
-parties_df = get_all_parties_cached()
-loans_df = get_all_loans_cached()
-ledger_df = get_all_ledger_cached()
+# Stats
+active_loans = len(loans_df[loans_df['status'] == 'Active']) if not loans_df.empty else 0
+total_disbursed = loans_df['principal'].astype(float).sum() if not loans_df.empty else 0
+total_gold = loans_df[loans_df['status'] == 'Active']['net_weight'].astype(float).sum() if not loans_df.empty else 0
 
-count_parties = len(parties_df) if not parties_df.empty else 0
-count_loans = len(loans_df) if not loans_df.empty else 0
-count_gold = len(loans_df[loans_df['status'] == 'Active']) if not loans_df.empty else 0
-count_tx = len(ledger_df) if not ledger_df.empty else 0
+# Sidebar
+st.sidebar.title("💎 AuraLoan")
+menu = st.sidebar.selectbox("Menu", ["Dashboard", "Add Customer", "New Loan", "View Loans", "Repayments", "Agreements"])
 
-# Helper function to generate agreement HTML
-def generate_agreement_html(loan_row, party_row):
-    image_html_tag = ""
-    if loan_row.get('gold_image_base64') and str(loan_row['gold_image_base64']).strip():
-        image_html_tag = f"""
-        <div style="margin-top:20px; margin-bottom:20px; text-align:center;">
-            <p><b>പണയം വെച്ച ആഭരണത്തിന്റെ ഫോട്ടോ (Pledged Asset Photo):</b></p>
-            <img src="data:image/jpeg;base64,{loan_row['gold_image_base64']}" style="max-width:320px; max-height:240px; border:3px solid #b8860b; border-radius:8px;"/>
-        </div>
-        """
+st.sidebar.markdown("---")
+st.sidebar.metric("Active Loans", active_loans)
+st.sidebar.metric("Total Disbursed", f"₹{total_disbursed:,.0f}")
+st.sidebar.metric("Gold in Vault", f"{total_gold:.1f}g")
+
+# ==========================================
+# DASHBOARD
+# ==========================================
+if menu == "Dashboard":
+    st.title("📊 Dashboard")
     
-    return f"""
-    <div class="agreement-box">
-        <h2 class="gold-header">സ്വർണ്ണപ്പണയ വായ്പാ കരാർ പത്രം (Gold Loan Agreement)</h2>
-        <p><b>കരാർ നമ്പർ (Agreement No):</b> #{loan_row['id']} &nbsp;&nbsp;|&nbsp;&nbsp; <b>തീയതി (Date):</b> {loan_row['disbursed_date']}</p>
-        <hr style="border-top: 1px solid #b8860b;">
-        
-        <h3>👤 1. പാർട്ടി വിവരങ്ങൾ (Party Details)</h3>
-        <ul>
-            <li><b>പേര് (Name):</b> {party_row['name']}</li>
-            <li><b>പിതാവ്/ഭർത്താവിന്റെ പേര് (Father/Husband Name):</b> {party_row.get('guardian_name', 'N/A') or 'N/A'}</li>
-            <li><b>വിലാസം (Address):</b> {party_row.get('address', 'N/A') or 'N/A'}, {party_row.get('pincode', '') or ''}</li>
-            <li><b>മൊബൈൽ നമ്പർ (Mobile):</b> {party_row['mobile']}</li>
-            <li><b>തൊഴിൽ (Occupation):</b> {party_row.get('occupation', 'N/A') or 'N/A'}</li>
-            <li><b>യോഗ്യത (Qualification):</b> {party_row.get('qualification', 'N/A') or 'N/A'}</li>
-        </ul>
-
-        <h3>💰 2. വായ്പയുടെ വിവരങ്ങൾ (Loan Details)</h3>
-        <table class="agreement-table">
-            <tr><th>വിവരണം (Description)</th><th>തുക / നിരക്ക് (Amount / Rate)</th></tr>
-            <tr><td>അനുവദിച്ച വായ്പ തുക (Principal / Disbursement)</td><td><b>₹{float(loan_row['principal']):,.2f}</b></td></tr>
-            <tr><td>പ്രതിവർഷ പലിശ നിരക്ക് (Interest Rate)</td><td>{loan_row['interest_rate']}%</td></tr>
-            <tr><td>കാലാവധി (Tenure)</td><td>{loan_row['duration_months']} മാസങ്ങൾ</td></tr>
-            <tr><td>പ്രതിമാസ തവണ (EMI)</td><td><b>₹{float(loan_row['emi']):,.2f}</b></td></tr>
-            <tr style="font-weight:bold; background-color: #fff0f6;"><td>ആകെ പലിശ തുക (Interest Amount)</td><td>₹{float(loan_row['interest_amount']):,.2f}</td></tr>
-            <tr style="font-weight:bold; background-color: #f6ffed;"><td>ആകെ തിരിച്ചടയ്ക്കാനുള്ളത് (Total Payable)</td><td>₹{float(loan_row['total_payable']):,.2f}</td></tr>
-        </table>
-
-        <h3>💎 3. സ്വർണ്ണത്തിന്റെ വിവരങ്ങൾ (Gold Details)</h3>
-        <ul>
-            <li><b>വിവരണം (Description):</b> {loan_row.get('gold_description', 'N/A') or 'N/A'}</li>
-            <li><b>ആകെ എണ്ണം (Count):</b> {loan_row['items_count']} Nos</li>
-            <li><b>ഭാരം (Weight):</b> {loan_row['net_weight']} ഗ്രാം</li>
-            <li><b>പ്യൂരിറ്റി (Purity):</b> {loan_row['purity_karat']} Karat</li>
-            <li><b>മൂല്യം (Value):</b> ₹{float(loan_row['appraised_value']):,.2f}</li>
-            <li><b>വോൾട്ട് സൂചിക (Vault ID):</b> `{loan_row.get('vault_id', 'N/A')}`</li>
-        </ul>
-        
-        {image_html_tag}
-        
-        <br>
-        <table style="width:100%; margin-top:30px;">
-            <tr>
-                <td>___________________________<br><b>വായ്പക്കാരന്റെ ഒപ്പ് / വിരലടയാളം</b></td>
-                <td style="text-align:right;">___________________________<br><b>സ്ഥാപന അധികാരിയുടെ ഒപ്പ്</b></td>
-            </tr>
-        </table>
-    </div>
-    """
-
-# Helper function to generate Fee Receipt HTML
-def generate_fee_receipt_html(loan_row, party_row):
-    total_fees = float(loan_row['processing_fee']) + float(loan_row['admin_fee']) + float(loan_row['documentation_fee'])
-    return f"""
-    <div class="printable-ledger receipt-box">
-        <h2 style="text-align:center;margin-bottom:2px;color:#b8860b;">AURA LOAN MANAGEMENT SYSTEM</h2>
-        <h4 style="text-align:center;margin-top:0px;color:#555;">📋 ഫീസ് അടച്ച വൗച്ചർ / FEES RECEIPT</h4>
-        <hr style="border-top: 1px dashed #000;">
-        <table style="width:100%; margin-bottom:15px; font-size:14px;">
-            <tr><td><b>കസ്റ്റമർ പേര് (Name):</b> {party_row['name']}</td><td><b>രസീത് നമ്പർ (Receipt No):</b> #FEE-{loan_row['id']}</td></tr>
-            <tr><td><b>ലോൺ ലിങ്ക് ഐഡി (Loan Ref ID):</b> #{loan_row['id']}</td><td><b>തീയതി (Date):</b> {loan_row['disbursed_date']}</td></tr>
-            <tr><td><b>മൊബൈൽ (Mobile):</b> {party_row['mobile']}</td><td><b>സ്റ്റാറ്റസ് (Status):</b> <span style="color:green;font-weight:bold;">Paid</span></td></tr>
-        </table>
-        
-        <table class="printable-table">
-            <thead>
-                <tr style="background-color: #f9f9f9;"><th>ക്രമ നമ്പർ (Sl No)</th><th>ഫീസ് വിവരണം (Fee Description)</th><th>ഈടാക്കിയ തുക (Amount Collected)</th></tr>
-            </thead>
-            <tbody>
-                <tr><td style="text-align:center;">1</td><td>പ്രോസസ്സിംഗ് ഫീസ് (Processing Fee)</td><td>₹{float(loan_row['processing_fee']):,.2f}</td></tr>
-                <tr><td style="text-align:center;">2</td><td>അഡ്മിൻ ഫീസ് (Admin Fee)</td><td>₹{float(loan_row['admin_fee']):,.2f}</td></tr>
-                <tr><td style="text-align:center;">3</td><td>ഡോക്യുമെന്റേഷൻ ഫീസ് (Documentation Fee)</td><td>₹{float(loan_row['documentation_fee']):,.2f}</td></tr>
-                <tr style="font-weight:bold; background-color: #f5f5f5;"><td colspan="2" style="text-align:right;">ആകെ ഈടാക്കിയ ഫീസ് (Total Service Charges):</td><td>₹{total_fees:,.2f}</td></tr>
-            </tbody>
-        </table>
-        <br>
-        <p style="font-size:13px; font-weight:bold;">തുക അക്ഷരത്തിൽ: രൂപ {total_fees} മാത്രം.</p>
-        <br>
-        <table style="width:100%; margin-top:20px; font-size:14px; text-align:center;">
-            <tr><td>____________________<br>ക്യാഷറുടെ ഒപ്പ് (Cashier)</td><td>____________________<br>കസ്റ്റമർ ഒപ്പ് (Customer Signature)</td></tr>
-        </table>
-    </div>
-    """
-
-# ==========================================
-# 4. SIDEBAR NAVIGATION
-# ==========================================
-st.sidebar.markdown("### 📋 Navigation")
-main_menu = [
-    "🏠 Dashboard",
-    "👤 Party Master",
-    "✏️ Edit/Delete Party Profile",
-    "💰 Gold Loan Management",
-    "💍 Gold Pledge Management",
-    "📄 Loan Agreement (Malayalam)",
-    "📅 EMI Schedule",
-    "💾 Data Management"
-]
-choice = st.sidebar.selectbox("Select Module", main_menu)
-
-st.sidebar.markdown("---")
-st.sidebar.markdown("### 📊 Sub-Modules")
-if choice == "💰 Gold Loan Management":
-    sub_choice = st.sidebar.radio("Sub Navigation", ["💸 Loan Disbursement", "📊 Party Ledger"])
-else:
-    st.sidebar.markdown("*No active sub-module*")
-    sub_choice = None
-
-st.sidebar.markdown("---")
-st.sidebar.markdown("### 📊 System Stats")
-st.sidebar.write(f"👤 Parties: **{count_parties}**")
-st.sidebar.write(f"💰 Loans: **{count_loans}**")
-st.sidebar.write(f"💍 Active Gold: **{count_gold}**")
-st.sidebar.write(f"📝 Transactions: **{count_tx}**")
-
-st.title("🏆 AuraLoan - Premium Gold Loan System")
-st.markdown("---")
-
-# [Rest of your modules remain the same - Dashboard, Party Master, Edit/Delete, 
-# Gold Loan Management, Gold Pledge, Loan Agreement, EMI Schedule, Data Management]
-
-# ==========================================
-# MODULE: DASHBOARD
-# ==========================================
-if choice == "🏠 Dashboard":
-    st.header("📊 Executive Portfolio Dashboard")
+    col1, col2, col3 = st.columns(3)
+    col1.metric("Active Loans", active_loans)
+    col2.metric("Total Disbursed", f"₹{total_disbursed:,.0f}")
+    col3.metric("Gold in Vault", f"{total_gold:.1f}g")
     
     if not loans_df.empty:
-        active_loans = loans_df[loans_df['status'] == 'Active']
-        total_active_loans = len(active_loans)
-        total_disbursed = pd.to_numeric(loans_df['principal'], errors='coerce').sum()
-        total_gold_wt = pd.to_numeric(active_loans['net_weight'], errors='coerce').sum()
+        st.subheader("All Loans")
+        display = loans_df[['id', 'party_name', 'principal', 'status']].copy()
+        display.columns = ['Loan ID', 'Customer', 'Amount', 'Status']
+        st.dataframe(display, use_container_width=True)
+
+# ==========================================
+# ADD CUSTOMER
+# ==========================================
+elif menu == "Add Customer":
+    st.title("👤 Register New Customer")
+    
+    with st.form("customer_form"):
+        col1, col2 = st.columns(2)
+        with col1:
+            name = st.text_input("Name *")
+            guardian = st.text_input("Father/Husband Name")
+            dob = st.date_input("Date of Birth")
+            mobile = st.text_input("Mobile *")
+        with col2:
+            occupation = st.text_input("Occupation")
+            address = st.text_area("Address")
+            pincode = st.text_input("Pincode")
+            kyc = st.selectbox("KYC Status", ["Pending", "Verified"])
+        
+        if st.form_submit_button("Register"):
+            if name and mobile:
+                add_party(name, guardian, dob, mobile, "", occupation, "", address, pincode, "", kyc)
+                st.success(f"✅ {name} registered!")
+                st.rerun()
+            else:
+                st.error("Name and Mobile required")
+
+# ==========================================
+# NEW LOAN
+# ==========================================
+elif menu == "New Loan":
+    st.title("💰 New Gold Loan")
+    
+    if parties_df.empty:
+        st.warning("Register a customer first!")
+    else:
+        verified = parties_df[parties_df['kyc_status'] == 'Verified']
+        if verified.empty:
+            st.warning("No verified customers!")
+        else:
+            with st.form("loan_form"):
+                customer = st.selectbox("Select Customer", verified['id'].tolist(), 
+                                       format_func=lambda x: f"{verified[verified['id']==x]['name'].values[0]} (ID:{x})")
+                
+                col1, col2 = st.columns(2)
+                with col1:
+                    st.subheader("Gold Details")
+                    gold_desc = st.text_input("Description (e.g., Chain, Ring)")
+                    items = st.number_input("Number of Items", 1, 100, 1)
+                    net_wt = st.number_input("Net Weight (grams)", 0.0, 10000.0, 10.0)
+                    purity = st.selectbox("Purity", [24, 22, 20, 18])
+                    appraised = st.number_input("Appraised Value (₹)", 0.0, 10000000.0, 50000.0)
+                    vault = st.text_input("Vault ID")
+                    
+                    photo = st.file_uploader("Gold Photo", type=['jpg', 'png', 'jpeg'])
+                    
+                with col2:
+                    st.subheader("Loan Terms")
+                    principal = st.number_input("Loan Amount (₹)", 0.0, appraised*0.75, 40000.0)
+                    rate = st.number_input("Interest Rate (%)", 0.0, 100.0, 12.0)
+                    duration = st.number_input("Duration (months)", 1, 36, 12)
+                    
+                    st.subheader("Fees")
+                    proc_fee = st.number_input("Processing Fee (₹)", 0.0, 10000.0, 500.0)
+                    admin_fee = st.number_input("Admin Fee (₹)", 0.0, 5000.0, 200.0)
+                    doc_fee = st.number_input("Documentation Fee (₹)", 0.0, 5000.0, 200.0)
+                    
+                    interest = principal * (rate/100)
+                    total = principal + interest
+                    emi = total / duration
+                    
+                    st.metric("Interest Amount", f"₹{interest:,.0f}")
+                    st.metric("Total Payable", f"₹{total:,.0f}")
+                    st.metric("Monthly EMI", f"₹{emi:,.0f}")
+                
+                if st.form_submit_button("Disburse Loan"):
+                    if principal > appraised * 0.75:
+                        st.error("Amount exceeds 75% of gold value!")
+                    else:
+                        photo_b64 = base64.b64encode(photo.read()).decode() if photo else ""
+                        cname = verified[verified['id']==customer]['name'].values[0]
+                        today = str(datetime.now().date())
+                        
+                        lid = add_loan(customer, cname, principal, rate, duration, emi, proc_fee, admin_fee, doc_fee, interest, total, gold_desc, items, 0, net_wt, purity, appraised, vault, photo_b64, today)
+                        add_ledger(lid, "Disbursement", principal, today)
+                        
+                        st.success(f"✅ Loan #{lid} created!")
+                        st.rerun()
+
+# ==========================================
+# VIEW LOANS
+# ==========================================
+elif menu == "View Loans":
+    st.title("📋 All Loans")
+    
+    if loans_df.empty:
+        st.info("No loans yet")
+    else:
+        status_filter = st.selectbox("Filter by Status", ["All", "Active", "Closed"])
+        filtered = loans_df if status_filter == "All" else loans_df[loans_df['status'] == status_filter]
+        
+        for _, loan in filtered.iterrows():
+            with st.expander(f"Loan #{loan['id']} - {loan['party_name']} - ₹{loan['principal']} ({loan['status']})"):
+                col1, col2 = st.columns(2)
+                with col1:
+                    st.write(f"**Customer:** {loan['party_name']}")
+                    st.write(f"**Amount:** ₹{loan['principal']}")
+                    st.write(f"**Interest:** {loan['interest_rate']}%")
+                    st.write(f"**Duration:** {loan['duration_months']} months")
+                    st.write(f"**EMI:** ₹{loan['emi']}")
+                with col2:
+                    st.write(f"**Gold:** {loan['gold_description']}")
+                    st.write(f"**Weight:** {loan['net_weight']}g")
+                    st.write(f"**Purity:** {loan['purity_karat']}K")
+                    st.write(f"**Vault:** {loan['vault_id']}")
+                    st.write(f"**Date:** {loan['disbursed_date']}")
+
+# ==========================================
+# REPAYMENTS
+# ==========================================
+elif menu == "Repayments":
+    st.title("💳 Repayments")
+    
+    active = loans_df[loans_df['status'] == 'Active'] if not loans_df.empty else pd.DataFrame()
+    
+    if active.empty:
+        st.info("No active loans")
+    else:
+        loan_sel = st.selectbox("Select Loan", active['id'].tolist(),
+                               format_func=lambda x: f"Loan #{x} - {active[active['id']==x]['party_name'].values[0]}")
+        
+        loan = active[active['id']==loan_sel].iloc[0]
+        total_payable = float(loan['total_payable'])
+        
+        # Calculate paid
+        paid = ledger_df[ledger_df['loan_id']==str(loan_sel)]['amount'].astype(float).sum() if not ledger_df.empty else 0
+        balance = total_payable - paid
         
         col1, col2, col3 = st.columns(3)
-        col1.metric("Active Loan Accounts", total_active_loans)
-        col2.metric("Total Disbursement", f"₹{total_disbursed:,.2f}")
-        col3.metric("Total Gold Vaulted", f"{total_gold_wt:.2f} g")
+        col1.metric("Total Payable", f"₹{total_payable:,.0f}")
+        col2.metric("Paid", f"₹{paid:,.0f}")
+        col3.metric("Balance", f"₹{balance:,.0f}")
         
-        st.subheader("📈 Portfolio Overview")
-        if not parties_df.empty:
-            merged_df = loans_df.merge(parties_df[['id', 'name']], left_on='party_id', right_on='id', how='left')
-            dashboard_df = merged_df[['id_x', 'name', 'principal', 'interest_amount', 'total_payable', 'emi', 'status']]
-            dashboard_df.columns = ['Loan ID', 'Customer', 'Principal', 'Interest', 'Total Payable', 'EMI', 'Status']
-            st.dataframe(dashboard_df, use_container_width=True)
-    else:
-        st.info("No loan data available yet.")
+        if balance > 0:
+            with st.form("repay"):
+                amount = st.number_input("Amount (₹)", 0.0, balance, 1000.0)
+                date = st.date_input("Date")
+                
+                if st.form_submit_button("Record Payment"):
+                    add_ledger(loan_sel, "Repayment", amount, str(date))
+                    
+                    if amount >= balance:
+                        loans_ws.update_cell(loan_sel+1, 22, "Closed")  # +1 for header
+                    
+                    st.success("✅ Payment recorded!")
+                    st.rerun()
 
-# Footer
+# ==========================================
+# AGREEMENTS
+# ==========================================
+elif menu == "Agreements":
+    st.title("📄 Agreements")
+    
+    if loans_df.empty:
+        st.info("No loans")
+    else:
+        loan_sel = st.selectbox("Select Loan", loans_df['id'].tolist(),
+                               format_func=lambda x: f"Loan #{x} - {loans_df[loans_df['id']==x]['party_name'].values[0]}")
+        
+        loan = loans_df[loans_df['id']==loan_sel].iloc[0]
+        party = parties_df[parties_df['id']==loan['party_id']].iloc[0] if not parties_df.empty else None
+        
+        if party is not None:
+            agreement = f"""
+            <div class="agreement-box">
+                <h2 class="gold-header">GOLD LOAN AGREEMENT</h2>
+                <p><b>Agreement No:</b> #{loan['id']} | <b>Date:</b> {loan['disbursed_date']}</p>
+                <hr>
+                <h3>Customer Details</h3>
+                <p><b>Name:</b> {party['name']}<br>
+                <b>Mobile:</b> {party['mobile']}<br>
+                <b>Address:</b> {party.get('address', 'N/A')}</p>
+                
+                <h3>Loan Details</h3>
+                <table class="agreement-table">
+                    <tr><th>Item</th><th>Details</th></tr>
+                    <tr><td>Loan Amount</td><td>₹{loan['principal']}</td></tr>
+                    <tr><td>Interest Rate</td><td>{loan['interest_rate']}%</td></tr>
+                    <tr><td>Duration</td><td>{loan['duration_months']} months</td></tr>
+                    <tr><td>EMI</td><td>₹{loan['emi']}</td></tr>
+                    <tr><td>Total Payable</td><td>₹{loan['total_payable']}</td></tr>
+                </table>
+                
+                <h3>Gold Details</h3>
+                <p><b>Description:</b> {loan['gold_description']}<br>
+                <b>Weight:</b> {loan['net_weight']}g | <b>Purity:</b> {loan['purity_karat']}K<br>
+                <b>Vault:</b> {loan['vault_id']}</p>
+            </div>
+            """
+            
+            st.markdown(agreement, unsafe_allow_html=True)
+            st.download_button("Download Agreement", agreement, f"agreement_{loan['id']}.html", "text/html")
+
 st.markdown("---")
-st.markdown("<p style='text-align:center; color:#8B6508;'>© 2024 AuraLoan - Gold Loan Management System</p>", unsafe_allow_html=True)
+st.markdown("<center style='color:#8B6508;'>© 2024 AuraLoan</center>", unsafe_allow_html=True)

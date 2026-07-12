@@ -13,58 +13,49 @@ conn = st.connection("gsheets", type=GSheetsConnection)
 # LOAD ALL DATA
 # ==========================================
 @st.cache_data(ttl=10)
-def load_data():
+def load_parties():
     try:
-        parties = conn.read(worksheet="Parties")
-        if parties.empty:
-            parties = pd.DataFrame(columns=['id','name','guardian_name','dob','mobile','whatsapp',
-                                           'address','pincode','pan_masked','occupation','qualification',
-                                           'kyc_status','created_at'])
+        df = conn.read(worksheet="Parties")
+        return df if not df.empty else pd.DataFrame(columns=['id','name','guardian_name','dob','mobile','whatsapp','address','pincode','pan_masked','occupation','qualification','kyc_status','created_at'])
     except:
-        parties = pd.DataFrame(columns=['id','name','guardian_name','dob','mobile','whatsapp',
-                                       'address','pincode','pan_masked','occupation','qualification',
-                                       'kyc_status','created_at'])
-    try:
-        loans = conn.read(worksheet="Loans")
-        if loans.empty:
-            loans = pd.DataFrame(columns=['id','party_id','party_name','principal','interest_rate',
-                                         'duration_months','emi','processing_fee','admin_fee',
-                                         'documentation_fee','net_disbursed','interest_amount',
-                                         'total_payable','gold_description','items_count','gross_weight',
-                                         'net_weight','purity_karat','appraised_value','vault_id',
-                                         'gold_image_base64','status','disbursed_date','created_at'])
-    except:
-        loans = pd.DataFrame(columns=['id','party_id','party_name','principal','interest_rate',
-                                     'duration_months','emi','processing_fee','admin_fee',
-                                     'documentation_fee','net_disbursed','interest_amount',
-                                     'total_payable','gold_description','items_count','gross_weight',
-                                     'net_weight','purity_karat','appraised_value','vault_id',
-                                     'gold_image_base64','status','disbursed_date','created_at'])
-    try:
-        ledger = conn.read(worksheet="Ledger")
-        if ledger.empty:
-            ledger = pd.DataFrame(columns=['id','loan_id','transaction_type','amount',
-                                          'transaction_date','created_at'])
-    except:
-        ledger = pd.DataFrame(columns=['id','loan_id','transaction_type','amount',
-                                      'transaction_date','created_at'])
-    return parties, loans, ledger
+        return pd.DataFrame(columns=['id','name','guardian_name','dob','mobile','whatsapp','address','pincode','pan_masked','occupation','qualification','kyc_status','created_at'])
 
-parties_df, loans_df, ledger_df = load_data()
+@st.cache_data(ttl=10)
+def load_loans():
+    try:
+        df = conn.read(worksheet="Loans")
+        return df if not df.empty else pd.DataFrame(columns=['id','party_id','party_name','principal','interest_rate','duration_months','emi','processing_fee','admin_fee','documentation_fee','net_disbursed','interest_amount','total_payable','gold_description','items_count','gross_weight','net_weight','purity_karat','appraised_value','vault_id','gold_image_base64','status','disbursed_date','created_at'])
+    except:
+        return pd.DataFrame(columns=['id','party_id','party_name','principal','interest_rate','duration_months','emi','processing_fee','admin_fee','documentation_fee','net_disbursed','interest_amount','total_payable','gold_description','items_count','gross_weight','net_weight','purity_karat','appraised_value','vault_id','gold_image_base64','status','disbursed_date','created_at'])
 
-# ==========================================
-# SAVE FUNCTIONS
-# ==========================================
+@st.cache_data(ttl=10)
+def load_ledger():
+    try:
+        df = conn.read(worksheet="Ledger")
+        return df if not df.empty else pd.DataFrame(columns=['id','loan_id','transaction_type','amount','transaction_date','created_at'])
+    except:
+        return pd.DataFrame(columns=['id','loan_id','transaction_type','amount','transaction_date','created_at'])
+
 def save_all():
-    conn.update(worksheet="Parties", data=parties_df)
-    conn.update(worksheet="Loans", data=loans_df)
-    conn.update(worksheet="Ledger", data=ledger_df)
-    load_data.clear()
+    conn.update(worksheet="Parties", data=st.session_state.parties_df)
+    conn.update(worksheet="Loans", data=st.session_state.loans_df)
+    conn.update(worksheet="Ledger", data=st.session_state.ledger_df)
+    load_parties.clear()
+    load_loans.clear()
+    load_ledger.clear()
 
 def next_id(df):
     if df.empty or 'id' not in df.columns: return 1
     ids = pd.to_numeric(df['id'], errors='coerce').dropna()
     return int(ids.max()) + 1 if not ids.empty else 1
+
+# Initialize session state
+if 'parties_df' not in st.session_state:
+    st.session_state.parties_df = load_parties()
+if 'loans_df' not in st.session_state:
+    st.session_state.loans_df = load_loans()
+if 'ledger_df' not in st.session_state:
+    st.session_state.ledger_df = load_ledger()
 
 # ==========================================
 # UI SETUP
@@ -82,6 +73,11 @@ st.markdown("""
 .agreement-table th { background-color: #f5f0db; color: #b8860b; }
 </style>
 """, unsafe_allow_html=True)
+
+# Use session state dataframes
+parties_df = st.session_state.parties_df
+loans_df = st.session_state.loans_df
+ledger_df = st.session_state.ledger_df
 
 # Stats
 active_count = len(loans_df[loans_df['status']=='Active']) if not loans_df.empty and 'status' in loans_df.columns else 0
@@ -133,7 +129,6 @@ elif menu == "Add Customer":
         
         if st.form_submit_button("Register"):
             if name and mobile:
-                global parties_df
                 new_id = next_id(parties_df)
                 new_row = pd.DataFrame([{
                     'id': new_id, 'name': name, 'guardian_name': guardian,
@@ -142,7 +137,7 @@ elif menu == "Add Customer":
                     'occupation': occupation, 'qualification': '',
                     'kyc_status': kyc, 'created_at': str(datetime.now().date())
                 }])
-                parties_df = pd.concat([parties_df, new_row], ignore_index=True) if not parties_df.empty else new_row
+                st.session_state.parties_df = pd.concat([parties_df, new_row], ignore_index=True) if not parties_df.empty else new_row
                 save_all()
                 st.success(f"✅ {name} registered!")
                 st.rerun()
@@ -203,7 +198,6 @@ elif menu == "New Loan":
                     cname = verified[verified['id']==customer]['name'].values[0]
                     today = str(datetime.now().date())
                     
-                    global loans_df, ledger_df
                     new_id = next_id(loans_df)
                     new_loan = pd.DataFrame([{
                         'id': new_id, 'party_id': customer, 'party_name': cname,
@@ -218,7 +212,7 @@ elif menu == "New Loan":
                         'vault_id': vault, 'gold_image_base64': photo_b64,
                         'status': 'Active', 'disbursed_date': today, 'created_at': today
                     }])
-                    loans_df = pd.concat([loans_df, new_loan], ignore_index=True) if not loans_df.empty else new_loan
+                    st.session_state.loans_df = pd.concat([loans_df, new_loan], ignore_index=True) if not loans_df.empty else new_loan
                     
                     ledger_id = next_id(ledger_df)
                     new_ledger = pd.DataFrame([{
@@ -227,7 +221,7 @@ elif menu == "New Loan":
                         'amount': principal, 'transaction_date': today,
                         'created_at': today
                     }])
-                    ledger_df = pd.concat([ledger_df, new_ledger], ignore_index=True) if not ledger_df.empty else new_ledger
+                    st.session_state.ledger_df = pd.concat([ledger_df, new_ledger], ignore_index=True) if not ledger_df.empty else new_ledger
                     
                     save_all()
                     st.success(f"✅ Loan #{new_id} created!")
@@ -296,7 +290,6 @@ elif menu == "Repayments":
                     date = st.date_input("Date")
                     
                     if st.form_submit_button("Record Payment"):
-                        global ledger_df, loans_df
                         ledger_id = next_id(ledger_df)
                         new_entry = pd.DataFrame([{
                             'id': ledger_id, 'loan_id': loan_sel,
@@ -304,10 +297,10 @@ elif menu == "Repayments":
                             'amount': amount, 'transaction_date': str(date),
                             'created_at': str(datetime.now().date())
                         }])
-                        ledger_df = pd.concat([ledger_df, new_entry], ignore_index=True) if not ledger_df.empty else new_entry
+                        st.session_state.ledger_df = pd.concat([ledger_df, new_entry], ignore_index=True) if not ledger_df.empty else new_entry
                         
                         if amount >= balance:
-                            loans_df.loc[loans_df['id']==loan_sel, 'status'] = 'Closed'
+                            st.session_state.loans_df.loc[st.session_state.loans_df['id']==loan_sel, 'status'] = 'Closed'
                         
                         save_all()
                         st.success("✅ Payment recorded!")
